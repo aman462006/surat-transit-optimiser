@@ -1,0 +1,4 @@
+# Vercel deploys ONLY the Vite frontend. The FastAPI backend is hosted
+# separately (Cloudflare Tunnel / Render), so keep Vercel from detecting it
+# as a service (which blocks the deploy — Vercel can't run a uvicorn server).
+backend
