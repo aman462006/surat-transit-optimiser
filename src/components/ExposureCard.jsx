@@ -69,7 +69,8 @@ const ExposureCard = ({ exposure, modeExposure, modeName, isLoading }) => {
     );
   }
 
-  const { avgAqi, peakAqi, avgPm25, avgPm10, segments, aqiClass, pm25Class } = exposure;
+  const { avgAqi, peakAqi, avgPm25, avgPm10, segments, aqiClass, pm25Class, uncertaintyPct } = exposure;
+  const errLabel = uncertaintyPct != null ? `±${uncertaintyPct}%` : null;
 
   return (
     <div className="exposure-card" style={{ borderLeft: `4px solid ${aqiClass.color}` }}>
@@ -83,7 +84,7 @@ const ExposureCard = ({ exposure, modeExposure, modeName, isLoading }) => {
       {/* Ambient: the air on the route */}
       <p className="exposure-headline">
         Air on this route:{' '}
-        <strong style={{ color: aqiClass.color }}>{avgAqi} AQI</strong> per 500 m
+        <strong style={{ color: aqiClass.color }}>{avgAqi} AQI</strong>{errLabel ? ` ${errLabel}` : ''} per 500 m
         <span className="exposure-sub"> ({segments} × 500 m segments{peakAqi > avgAqi ? `, peak ${peakAqi}` : ''})</span>
       </p>
 
@@ -92,15 +93,24 @@ const ExposureCard = ({ exposure, modeExposure, modeName, isLoading }) => {
           <span className="exposure-metric-label">Air Quality Index</span>
           <span className="exposure-metric-val" style={{ color: aqiClass.color }}>{avgAqi}</span>
           <span className="exposure-metric-unit">{aqiClass.name}</span>
+          {errLabel && <span className="exposure-metric-err">{errLabel} uncertainty</span>}
           <Badge cls={aqiClass} />
         </div>
         <div className="exposure-metric" style={{ borderColor: pm25Class.color, background: `${pm25Class.color}14` }}>
           <span className="exposure-metric-label">PM2.5 (ambient)</span>
           <span className="exposure-metric-val" style={{ color: pm25Class.color }}>{avgPm25}</span>
           <span className="exposure-metric-unit">µg/m³ per 500 m</span>
+          {errLabel && <span className="exposure-metric-err">{errLabel} uncertainty</span>}
           <Badge cls={pm25Class} />
         </div>
       </div>
+
+      {errLabel && (
+        <p className="exposure-err-note">
+          ± figures are an estimated uncertainty for this {exposure.source === 'cpcb' ? 'CPCB sensor' : exposure.source === 'station' ? 'WAQI station' : 'CAMS model'} reading,
+          based on the data source{exposure.stationDistanceKm != null ? ` and the ${exposure.stationDistanceKm} km distance to the nearest sensor` : ''} — not a live measured error.
+        </p>
+      )}
 
       {/* Personal: what you actually inhale in the chosen mode */}
       {modeExposure && (
@@ -109,9 +119,13 @@ const ExposureCard = ({ exposure, modeExposure, modeName, isLoading }) => {
             <span>Your exposure in <strong>{modeName}</strong></span>
             <span className="exposure-factor-pill" style={{ color: modeExposure.pm25Class.color, borderColor: modeExposure.pm25Class.color }}>
               ×{modeExposure.factor}
+              {modeExposure.factorRange ? ` · ${Math.round(modeExposure.factorRange[0] * 100)}–${Math.round(modeExposure.factorRange[1] * 100)}% of walking` : ''}
             </span>
           </div>
           <p className="exposure-factor-note">{modeExposure.factorLabel}</p>
+          {modeExposure.factorReason && (
+            <p className="exposure-factor-reason">Why this factor: {modeExposure.factorReason}</p>
+          )}
           <div className="exposure-dose-row">
             <span>Effective PM2.5 you breathe</span>
             <strong style={{ color: modeExposure.pm25Class.color }}>{modeExposure.effectivePm25} µg/m³</strong>

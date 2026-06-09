@@ -116,6 +116,7 @@ def traffic(req: TrafficRequest):
         req.departureTime,
         req.baseDurationMins,
         req.distanceKm,
+        [w.model_dump() for w in req.waypoints] if req.waypoints else None,
     )
 
 

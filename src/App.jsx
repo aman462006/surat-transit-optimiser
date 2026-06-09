@@ -5,7 +5,18 @@ import { getTrafficEta } from './utils/googleMapsService';
 import { searchPlaces, reverseGeocode, getUserCurrentLocation } from './utils/geocodingService';
 import { findNearestStation } from './utils/graphUtils';
 import { fetchRouteExposure, computeModeExposure } from './utils/airQualityService';
+import { computeRoadRouteOptions } from './utils/roadExposureRouting';
 import ExposureCard from './components/ExposureCard';
+import RouteVariantCards from './components/RouteVariantCards';
+import FareProfileModal from './components/FareProfileModal';
+import CarFuelModal from './components/CarFuelModal';
+import AboutPage from './components/AboutPage';
+import { FARE_CONFIG } from './utils/fareEngine';
+
+// Road modes that travel the open street network (BRTS rides a fixed corridor,
+// so it never gets exposure-aware route alternatives).
+const ROAD_MODES = ['private-car', 'auto-pool'];
+const isRoadMode = (modeId) => ROAD_MODES.includes(modeId);
 
 const buildWalkingDistance = (option) => {
   if (option?.brtsItinerary?.walkingDistanceKm !== undefined) {
@@ -32,6 +43,62 @@ const buildFuelUsed = (option) => {
   return '—';
 };
 
+// CO₂ shown as a low–high range when a factor range is available, else a single value.
+const buildCo2 = (option) => {
+  if (!option) return '—';
+  const r = option.co2EmissionsRange;
+  if (Array.isArray(r) && r.length === 2) {
+    return `${r[0].toFixed(2)}–${r[1].toFixed(2)} kg`;
+  }
+  return `${option.co2Emissions} kg`;
+};
+
+/**
+ * Self-calibrating ETA model (error-reduction mitigation).
+ *
+ * Whenever TomTom live traffic is available, we observe how far the offline
+ * congestion model was from the live ground truth and fold that ratio into a
+ * persisted, exponentially-smoothed correction factor. When the offline model
+ * later has to run (TomTom unreachable), we scale its ETA by that factor so the
+ * fallback gets progressively more accurate. Persisted in localStorage so it
+ * survives reloads. The live "measured error" display is never altered — only
+ * the fallback value is corrected.
+ */
+const ETA_CAL_KEY = 'eta-model-calibration';
+const ETA_CAL_ALPHA = 0.35;       // learning rate for the EMA
+const ETA_CAL_MIN = 0.6;          // clamp the factor to a sane band
+const ETA_CAL_MAX = 1.7;
+
+const readEtaCalibration = () => {
+  try {
+    const raw = localStorage.getItem(ETA_CAL_KEY);
+    if (!raw) return { factor: 1, samples: 0 };
+    const p = JSON.parse(raw);
+    const factor = Number(p.factor);
+    return {
+      factor: Number.isFinite(factor) ? factor : 1,
+      samples: Number.isFinite(p.samples) ? p.samples : 0
+    };
+  } catch {
+    return { factor: 1, samples: 0 };
+  }
+};
+
+const learnEtaCalibration = (liveMins, modelMins) => {
+  if (!liveMins || !modelMins || modelMins <= 0) return;
+  const ratio = liveMins / modelMins;
+  if (!Number.isFinite(ratio) || ratio <= 0) return;
+  const prev = readEtaCalibration();
+  // First sample seeds the factor; later samples blend via EMA.
+  const blended = prev.samples === 0 ? ratio : prev.factor * (1 - ETA_CAL_ALPHA) + ratio * ETA_CAL_ALPHA;
+  const factor = Math.min(ETA_CAL_MAX, Math.max(ETA_CAL_MIN, blended));
+  try {
+    localStorage.setItem(ETA_CAL_KEY, JSON.stringify({ factor, samples: prev.samples + 1 }));
+  } catch {
+    /* storage unavailable (private mode) — calibration just won't persist */
+  }
+};
+
 const ModeComparisonMetrics = ({ option }) => (
   <div className="comparison-metrics">
     <div className="metric-row"><span>ETA</span><strong>{option ? `${option.travelTime} mins` : '—'}</strong></div>
@@ -40,20 +107,21 @@ const ModeComparisonMetrics = ({ option }) => (
       <span>Fuel used</span>
       <strong>{option?.id === 'private-car' ? buildFuelUsed(option) : '—'}</strong>
     </div>
-    <div className="metric-row"><span>CO₂</span><strong>{option ? `${option.co2Emissions} kg` : '—'}</strong></div>
+    <div className="metric-row"><span>CO₂</span><strong>{buildCo2(option)}</strong></div>
     <div className="metric-row"><span>Walking</span><strong>{option ? buildWalkingDistance(option) : '—'}</strong></div>
     <div className="metric-row"><span>Transfers</span><strong>{option ? (option.transfersRequired ?? 0) : '—'}</strong></div>
   </div>
 );
 
-const LongWalkDecisionModal = ({ brtsOption, autoPoolOption, privateCarOption, sourceDistance, destinationDistance, onSelect }) => {
+const LongWalkDecisionModal = ({ brtsOption, autoPoolOption, privateCarOption, sourceDistance, destinationDistance, onSelect, onClose, selectedId }) => {
   const FUEL_LABELS = { petrol: 'Petrol', diesel: 'Diesel', cng: 'CNG' };
   const fuelLabel = FUEL_LABELS[privateCarOption?.privateCarFuelType] || 'Petrol';
   const fuelUnit = privateCarOption?.privateCarFuelUnit || 'L';
 
   return (
-    <div className="modal-backdrop">
-      <div className="long-walk-modal long-walk-modal-three-way">
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="long-walk-modal long-walk-modal-three-way" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="modal-close-btn" aria-label="Close comparison" onClick={onClose}>×</button>
         <div className="modal-header">
           <div>
             <h3>Compare commuting modes</h3>
@@ -68,7 +136,8 @@ const LongWalkDecisionModal = ({ brtsOption, autoPoolOption, privateCarOption, s
         </div>
 
         <div className="modal-body modal-comparison-body">
-          <div className="modal-choice-card comparison-card comparison-card-mode comparison-card-mode--brts">
+          <div className={`modal-choice-card comparison-card comparison-card-mode comparison-card-mode--brts${selectedId === 'electric-bus' ? ' comparison-card--selected' : ''}`}>
+            {selectedId === 'electric-bus' && <span className="comparison-selected-badge">✓ Selected</span>}
             <div className="comparison-card-head">
               <div className="choice-icon choice-icon-brts">🚌</div>
               <div>
@@ -78,10 +147,11 @@ const LongWalkDecisionModal = ({ brtsOption, autoPoolOption, privateCarOption, s
               </div>
             </div>
             <ModeComparisonMetrics option={brtsOption} />
-            <button type="button" className="choice-btn choice-btn-brts" onClick={() => onSelect('electric-bus')}>Select BRTS</button>
+            <button type="button" className="choice-btn choice-btn-brts" onClick={() => onSelect('electric-bus')}>{selectedId === 'electric-bus' ? 'Currently selected' : 'Select BRTS'}</button>
           </div>
 
-          <div className="modal-choice-card comparison-card comparison-card-mode comparison-card-mode--carpool">
+          <div className={`modal-choice-card comparison-card comparison-card-mode comparison-card-mode--carpool${selectedId === 'auto-pool' ? ' comparison-card--selected' : ''}`}>
+            {selectedId === 'auto-pool' && <span className="comparison-selected-badge">✓ Selected</span>}
             <div className="comparison-card-head">
               <div className="choice-icon choice-icon-carpool">🛺</div>
               <div>
@@ -91,10 +161,26 @@ const LongWalkDecisionModal = ({ brtsOption, autoPoolOption, privateCarOption, s
               </div>
             </div>
             <ModeComparisonMetrics option={autoPoolOption} />
-            <button type="button" className="choice-btn choice-btn-carpool" onClick={() => onSelect('auto-pool')}>Select Auto Pooling</button>
+            {autoPoolOption && (
+              <div className="assumptions-note">
+                <p className="assumptions-title">Base values used</p>
+                <ul>
+                  <li>CNG price: ₹85/kg</li>
+                  <li>Auto mileage: {autoPoolOption.autoCngMileage} km/kg</li>
+                  <li>
+                    CO₂ factor: {autoPoolOption.cngCo2Range
+                      ? `${autoPoolOption.cngCo2Range[0]}–${autoPoolOption.cngCo2Range[1]} kg/kg`
+                      : `${autoPoolOption.cngCo2KgPerKg} kg/kg`}
+                  </li>
+                </ul>
+                <p className="assumptions-disclaimer">Fare uses the metered Gujarat auto tariff; CO₂ from CNG burned over the trip.</p>
+              </div>
+            )}
+            <button type="button" className="choice-btn choice-btn-carpool" onClick={() => onSelect('auto-pool')}>{selectedId === 'auto-pool' ? 'Currently selected' : 'Select Auto Pooling'}</button>
           </div>
 
-          <div className="modal-choice-card comparison-card comparison-card-mode comparison-card-mode--personal">
+          <div className={`modal-choice-card comparison-card comparison-card-mode comparison-card-mode--personal${selectedId === 'private-car' ? ' comparison-card--selected' : ''}`}>
+            {selectedId === 'private-car' && <span className="comparison-selected-badge">✓ Selected</span>}
             <div className="comparison-card-head">
               <div className="choice-icon choice-icon-personal">🚗</div>
               <div>
@@ -107,11 +193,65 @@ const LongWalkDecisionModal = ({ brtsOption, autoPoolOption, privateCarOption, s
               </div>
             </div>
             <ModeComparisonMetrics option={privateCarOption} />
-            <button type="button" className="choice-btn choice-btn-personal" onClick={() => onSelect('private-car')}>Select Personal Vehicle</button>
+            {privateCarOption && (
+              <div className="assumptions-note">
+                <p className="assumptions-title">Base values used</p>
+                <ul>
+                  <li>Fuel price{privateCarOption.privateCarPriceAssumed ? ' (assumed)' : ''}: ₹{privateCarOption.privateCarFuelPricePerLitre}/{fuelUnit}</li>
+                  <li>Mileage: {privateCarOption.privateCarMileageKmpl} km/{fuelUnit}</li>
+                  <li>
+                    CO₂ factor: {privateCarOption.privateCarCo2Range
+                      ? `${privateCarOption.privateCarCo2Range[0]}–${privateCarOption.privateCarCo2Range[1]} kg/${fuelUnit}`
+                      : `${privateCarOption.privateCarCo2KgPerLitre} kg/${fuelUnit}`}
+                  </li>
+                </ul>
+                <p className="assumptions-disclaimer">Petrol &amp; diesel prices are assumed pump rates ({fuelLabel === 'CNG' ? '₹101.83/L petrol, ₹97.92/L diesel' : 'petrol ₹101.83/L, diesel ₹97.92/L'}) and may vary day-to-day.</p>
+              </div>
+            )}
+            <button type="button" className="choice-btn choice-btn-personal" onClick={() => onSelect('private-car')}>{selectedId === 'private-car' ? 'Currently selected' : 'Select Personal Vehicle'}</button>
           </div>
         </div>
       </div>
     </div>
+  );
+};
+
+/**
+ * Inline measured-error badge for a displayed value.
+ * Shows ±error vs a real live source; tap (or hover) reveals the reason and,
+ * when present, a way to reduce it. When no live source is available it renders
+ * an honest "live n/a" chip instead of a fake number.
+ */
+const MeasuredErrorBadge = ({ error }) => {
+  const [open, setOpen] = useState(false);
+  if (!error) return null;
+
+  const measured = error.measured;
+  const chipClass = measured ? `error-badge sev-${error.severity}` : 'error-badge unmeasured';
+
+  return (
+    <span className="error-badge-wrap">
+      <button
+        type="button"
+        className={chipClass}
+        title={error.reason}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {measured ? `${error.absLabel} (${error.pctLabel})` : '⚠ live n/a'}
+      </button>
+      {open && (
+        <span className="error-popover" role="tooltip">
+          {measured && (
+            <strong className="error-popover-title">Measured error: {error.signedLabel}</strong>
+          )}
+          <span className="error-popover-reason">{error.reason}</span>
+          {error.mitigation && (
+            <span className="error-popover-mitigation">↘ {error.mitigation}</span>
+          )}
+        </span>
+      )}
+    </span>
   );
 };
 
@@ -148,6 +288,12 @@ function App() {
   const [exposure, setExposure] = useState(null);
   const [isLoadingExposure, setIsLoadingExposure] = useState(false);
 
+  // 2d. Exposure-aware road-route alternatives (car / auto only).
+  // roadRouteOptions = { options, fastestIdx, cleanestIdx, balancedIdx, negligible }
+  const [roadRouteOptions, setRoadRouteOptions] = useState(null);
+  const [isLoadingRouteOptions, setIsLoadingRouteOptions] = useState(false);
+  const [selectedRouteVariant, setSelectedRouteVariant] = useState('fastest'); // 'fastest' | 'cleanest' | 'balanced'
+
   // ==========================================
   // 2b. Traffic & Duration Engine (Hybrid Routing)
   // ==========================================
@@ -170,15 +316,22 @@ function App() {
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
   const [googleError, setGoogleError] = useState(null);
 
-  // Passenger fare profile (BRTS / SMC slabs)
+  // Passenger fare profile (BRTS / SMC slabs). Chosen via a popup when BRTS is
+  // selected, and editable afterwards — no longer an always-visible dropdown.
   const [passengerProfile, setPassengerProfile] = useState('standard');
+  const [isFareModalOpen, setIsFareModalOpen] = useState(false);
 
-  // Private car baseline: fuel chemistry for CO₂-per-litre and default mileage
-  const [privateCarFuelType, setPrivateCarFuelType] = useState('petrol');
+  // Startup About/landing page — gates the planner until the user proceeds.
+  const [hasEntered, setHasEntered] = useState(false);
+
+  // Private car baseline: fuel chemistry for CO₂-per-unit and default mileage.
+  // Chosen via a popup when Private Car is selected; editable afterwards.
+  const [carFuelType, setCarFuelType] = useState('petrol'); // 'petrol' | 'diesel' | 'cng'
+  const [isCarFuelModalOpen, setIsCarFuelModalOpen] = useState(false);
 
   const privateCarAssumptions = useMemo(
-    () => ({ fuelType: privateCarFuelType }),
-    [privateCarFuelType]
+    () => ({ fuelType: carFuelType }),
+    [carFuelType]
   );
 
   // Long-walk popup state for BRTS access decisions
@@ -204,16 +357,19 @@ function App() {
     setIsLongWalkPromptOpen(false);
   }, [source, destination]);
 
-  useEffect(() => {
-    if (source && destination && isLongStationWalk && !longWalkChoice) {
-      setIsLongWalkPromptOpen(true);
-    }
-  }, [source, destination, isLongStationWalk, longWalkChoice]);
-
   const handleLongWalkChoice = (choiceId) => {
     setLongWalkChoice(choiceId);
     setIsLongWalkPromptOpen(false);
-    setSelectedTransit(choiceId);
+    selectMode(choiceId);
+  };
+
+  // Central mode-selection entry point. Selecting BRTS pops up the fare-profile
+  // chooser; selecting Private Car pops up the fuel chooser — so the fare/CO₂
+  // shown reflects the rider's actual concession / fuel before they read it.
+  const selectMode = (modeId) => {
+    setSelectedTransit(modeId);
+    if (modeId === 'electric-bus') setIsFareModalOpen(true);
+    else if (modeId === 'private-car') setIsCarFuelModalOpen(true);
   };
 
   // Traffic Estimation source/label state.
@@ -225,6 +381,82 @@ function App() {
   }, [googleTrafficData]);
 
   const etaLabel = isLiveTraffic ? "Live Traffic ETA" : "Calibrated Urban ETA";
+
+  // 4b. Measured-error analysis (only where a real live value exists to compare against).
+  // ETA: our offline calibrated congestion model vs TomTom live ETA.
+  // Distance: OSRM road geometry (shown on the map) vs TomTom's own route distance.
+  // When TomTom is unavailable, the shown values ARE the model, so there is no live
+  // ground truth to measure against and the badge says so honestly.
+  const accuracy = useMemo(() => {
+    const d = googleTrafficData;
+    const out = { eta: null, distance: null };
+    if (!d) return out;
+    const isLive = !d.isSimulated;
+
+    // ---- ETA error: calibrated model vs live TomTom ----
+    if (isLive && typeof d.modelTrafficDuration === 'number' && d.trafficDuration > 0) {
+      const live = d.trafficDuration;
+      const model = d.modelTrafficDuration;
+      const diff = model - live; // + => model over-estimates the real ETA
+      const pct = (Math.abs(diff) / live) * 100;
+      out.eta = {
+        measured: true,
+        diff,
+        signedLabel: `${diff >= 0 ? '+' : '−'}${Math.abs(diff)} min`,
+        absLabel: `±${Math.abs(diff)} min`,
+        pctLabel: `${pct.toFixed(0)}%`,
+        severity: pct < 10 ? 'ok' : pct < 25 ? 'warn' : 'bad',
+        reason:
+          `Our offline calibrated model predicts ${model} min; TomTom live traffic measures ${live} min. ` +
+          `The gap is the model's error — it shapes OSRM free-flow time with an hour-by-hour Surat ` +
+          `congestion curve and Tapi-bridge queueing instead of reading live road sensors.`,
+        mitigation:
+          'Reducible by re-fitting the hourly congestion curve to logged TomTom samples for this corridor.'
+      };
+    } else if (!isLive) {
+      const cal = d.calibration;
+      out.eta = {
+        measured: false,
+        reason:
+          'TomTom live traffic is unavailable, so the ETA shown is the calibrated model itself. ' +
+          'There is no live value to measure its error against right now.' +
+          (cal
+            ? ` Auto-correction is active: the model ETA has been scaled by ×${cal.factor} ` +
+              `(learned from ${cal.samples} past live comparison${cal.samples === 1 ? '' : 's'}).`
+            : '')
+      };
+    }
+
+    // ---- Distance error: OSRM (map) vs TomTom route distance ----
+    if (typeof d.providerDistance === 'number' && d.providerDistance > 0 && roadDistance > 0) {
+      const provider = d.providerDistance;
+      const diff = roadDistance - provider; // + => OSRM longer than TomTom
+      const pct = (Math.abs(diff) / provider) * 100;
+      out.distance = {
+        measured: true,
+        diff,
+        signedLabel: `${diff >= 0 ? '+' : '−'}${Math.abs(diff).toFixed(2)} km`,
+        absLabel: `±${Math.abs(diff).toFixed(2)} km`,
+        pctLabel: `${pct.toFixed(0)}%`,
+        severity: pct < 5 ? 'ok' : pct < 15 ? 'warn' : 'bad',
+        reason:
+          `The map distance (${roadDistance} km) is OSRM road geometry; TomTom's router measures ` +
+          `${provider} km for the same trip. The difference is because the two routing engines pick ` +
+          `slightly different roads and turns.`,
+        mitigation:
+          'Reducible by feeding TomTom’s route distance into the fuel / cost / CO₂ calculations when it is available.'
+      };
+    } else if (!isLive) {
+      out.distance = {
+        measured: false,
+        reason:
+          'No live routing provider is reachable, so OSRM’s distance cannot be cross-checked against ' +
+          'a second router right now.'
+      };
+    }
+
+    return out;
+  }, [googleTrafficData, roadDistance]);
 
   // 5. Fallback Haversine Distance Calculation (If OSRM API fails)
   const haversineDistance = useMemo(() => {
@@ -303,6 +535,24 @@ function App() {
     fetchOSRMRoute();
   }, [source, destination, haversineDistance]);
 
+  // 6a. Exposure-aware road-route alternatives (car / auto only).
+  // Fetches a few distinct road corridors and ranks them fastest / cleanest-air
+  // / balanced. BRTS is a fixed corridor, so it's skipped entirely.
+  useEffect(() => {
+    if (!source || !destination || !isRoadMode(selectedTransit)) {
+      setRoadRouteOptions(null);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingRouteOptions(true);
+    setSelectedRouteVariant('fastest'); // reset to default whenever the route changes
+    computeRoadRouteOptions(source, destination)
+      .then((result) => { if (!cancelled) setRoadRouteOptions(result); })
+      .catch(() => { if (!cancelled) setRoadRouteOptions(null); })
+      .finally(() => { if (!cancelled) setIsLoadingRouteOptions(false); });
+    return () => { cancelled = true; };
+  }, [source, destination, selectedTransit]);
+
   // 6b. Traffic-Aware ETA Hook
   // Calls the backend /api/traffic (TomTom live traffic, server-side key) for every
   // source/destination pair, and transparently falls back to the on-device calibrated
@@ -319,8 +569,29 @@ function App() {
     (async () => {
       const data = await getTrafficEta(source, destination, departureTime, roadDuration, roadDistance);
       if (cancelled || !data) return;
-      setGoogleTrafficData(data);
-      setGoogleDuration(data.trafficDuration);
+
+      // Self-calibrating ETA model: learn from live, correct the fallback.
+      let display = data;
+      if (!data.isSimulated && data.modelTrafficDuration > 0 && data.trafficDuration > 0) {
+        // Live ground truth available — update the persisted correction factor.
+        learnEtaCalibration(data.trafficDuration, data.modelTrafficDuration);
+      } else if (data.isSimulated && data.trafficDuration > 0) {
+        // Offline model in use — apply the learned correction, if any.
+        const cal = readEtaCalibration();
+        if (cal.samples > 0 && Math.abs(cal.factor - 1) > 0.01) {
+          const corrected = Math.max(2, Math.round(data.trafficDuration * cal.factor));
+          display = {
+            ...data,
+            trafficDuration: corrected,
+            rawModelDuration: data.trafficDuration,
+            delayMins: Math.max(0, corrected - data.standardDuration),
+            calibration: { factor: +cal.factor.toFixed(3), samples: cal.samples }
+          };
+        }
+      }
+
+      setGoogleTrafficData(display);
+      setGoogleDuration(display.trafficDuration);
       setGoogleError(null);
       setIsLoadingGoogle(false);
     })();
@@ -485,22 +756,47 @@ function App() {
     return recommendations.find(r => r.id === selectedTransit) || null;
   }, [selectedTransit, recommendations]);
 
+  // The road geometry currently in focus. For car/auto with computed
+  // alternatives this is the selected variant's path (fastest / cleanest /
+  // balanced); otherwise it's the base OSRM route. The map and the exposure
+  // panel both follow this, so toggling a variant redraws and re-measures.
+  const activeRouteCoordinates = useMemo(() => {
+    if (isRoadMode(selectedTransit) && roadRouteOptions?.options?.length) {
+      const idxFor = {
+        fastest: roadRouteOptions.fastestIdx,
+        cleanest: roadRouteOptions.cleanestIdx,
+        balanced: roadRouteOptions.balancedIdx
+      };
+      const opt = roadRouteOptions.options[idxFor[selectedRouteVariant]];
+      if (opt?.coordinates?.length > 1) return opt.coordinates;
+    }
+    return routeCoordinates;
+  }, [selectedTransit, roadRouteOptions, selectedRouteVariant, routeCoordinates]);
+
+  // Inactive alternatives, drawn faintly on the map for visual comparison.
+  const inactiveRouteAlternatives = useMemo(() => {
+    if (!isRoadMode(selectedTransit) || !roadRouteOptions?.options?.length) return [];
+    return roadRouteOptions.options
+      .filter((opt) => opt.coordinates !== activeRouteCoordinates)
+      .map((opt) => opt.coordinates);
+  }, [selectedTransit, roadRouteOptions, activeRouteCoordinates]);
+
   // 7b. Route Pollution-Exposure Hook (ambient air quality, mode-independent)
   // Samples the road path every ~500 m and pulls live AQI/PM2.5 from CPCB → WAQI
   // → CAMS. Each mode's personal dose is derived from this via computeModeExposure.
   useEffect(() => {
-    if (!routeCoordinates || routeCoordinates.length < 2) {
+    if (!activeRouteCoordinates || activeRouteCoordinates.length < 2) {
       setExposure(null);
       return;
     }
     let cancelled = false;
     setIsLoadingExposure(true);
-    fetchRouteExposure(routeCoordinates)
+    fetchRouteExposure(activeRouteCoordinates)
       .then((data) => { if (!cancelled) setExposure(data); })
       .catch(() => { if (!cancelled) setExposure(null); })
       .finally(() => { if (!cancelled) setIsLoadingExposure(false); });
     return () => { cancelled = true; };
-  }, [routeCoordinates]);
+  }, [activeRouteCoordinates]);
 
   // Per-mode personal exposure (applies each mode's microenvironment factor).
   const selectedModeExposure = useMemo(() => {
@@ -551,6 +847,11 @@ function App() {
     setDestination(tempSource);
     setDestText(tempSourceText);
   };
+
+  // Show the About/landing page first; the planner mounts once the user proceeds.
+  if (!hasEntered) {
+    return <AboutPage onProceed={() => setHasEntered(true)} />;
+  }
 
   return (
     <div className="app-layout">
@@ -720,105 +1021,7 @@ function App() {
               </div>
             </div>
 
-            <div className="passenger-profile-selector">
-              <label className="input-label">Passenger Fare Profile</label>
-              <select
-                value={passengerProfile}
-                onChange={(e) => setPassengerProfile(e.target.value)}
-                className="departure-select"
-              >
-                <option value="standard">🎟️ Standard single ticket</option>
-                <option value="student">🎓 Student Pass SMC (50% Off)</option>
-                <option value="senior">👴 Senior Citizen (30% Off)</option>
-                <option value="pass_holder">💳 Monthly BRTS Transit Pass (80% Off)</option>
-              </select>
-            </div>
           </section>
-
-          {/* User Optimization Sliders Preferences Card */}
-          {source && destination && (
-            <>
-              {/* Traffic Engine Card */}
-              <section className="controls-card google-config fade-in">
-                <div className="section-header-row">
-                  <h3>{isLiveTraffic ? "Live Traffic Engine" : "Surat Smart Traffic Engine"}</h3>
-                  <span className={`upcoming-tag ${isLiveTraffic ? 'status-live' : 'status-simulated'}`}>
-                    {isLiveTraffic ? 'LIVE' : 'MOBILITY MODEL'}
-                  </span>
-                </div>
-                <p className="card-subtitle">
-                  {isLiveTraffic
-                    ? "Real-time, traffic-aware ETAs. Pick a departure window for predictive peak conditions."
-                    : "ETAs use OSRM road time shaped by an hour-by-hour Surat congestion curve and Tapi-bridge queueing."}
-                </p>
-
-                <div className="input-group" style={{ marginTop: '4px' }}>
-                  <label className="input-label">Departure Window</label>
-                  <select
-                    value={departureTime}
-                    onChange={(e) => setDepartureTime(e.target.value)}
-                    className="departure-select"
-                  >
-                    <option value="now">🕒 Depart Now (Live Clock)</option>
-                    <option value="morning-rush">🌅 Morning Rush Peak (08:00 - 10:30)</option>
-                    <option value="midday-offpeak">☀️ Midday Off-Peak (12:00 - 15:00)</option>
-                    <option value="evening-rush">🌇 Evening Commute Peak (17:00 - 20:00)</option>
-                    <option value="night-freeflow">🌌 Late Night Free Flow (22:00 - 05:00)</option>
-                  </select>
-                </div>
-
-                {googleError && (
-                  <div className="google-status-row error">
-                    ⚠️ {googleError}
-                  </div>
-                )}
-
-                {googleTrafficData && !isLoadingGoogle && (
-                  <div className={`google-status-row traffic-indicator ${googleTrafficData.color}`}>
-                    <div className="indicator-header">
-                      <span className="traffic-status-badge">
-                        {isLiveTraffic ? "🌐 Live Traffic" : "🚗 Calibrated Traffic Model"}
-                      </span>
-                      {googleTrafficData.delayMins > 0 ? (
-                        <span className="delay-badge">+{googleTrafficData.delayMins}m delay</span>
-                      ) : (
-                        <span className="delay-badge free">No Delays</span>
-                      )}
-                    </div>
-                    <p className="indicator-desc">{googleTrafficData.description}</p>
-
-                    <div className="engine-split-stats">
-                      <span>OSRM Geometry: <b>{roadDistance} km</b></span>
-                      <span>{etaLabel}: <b>{googleDuration} mins</b></span>
-                    </div>
-                    {googleTrafficData.fallbackWarning && (
-                      <span className="fallback-note">{googleTrafficData.fallbackWarning}</span>
-                    )}
-                  </div>
-                )}
-              </section>
-
-              {/* Private car baseline assumptions (affects fuel, cost, CO₂ only) */}
-              <section className="controls-card fade-in">
-                <h3>Private car baseline</h3>
-                <p className="card-subtitle">Petrol, diesel and CNG use different default mileage and CO₂ per unit; fuel cost uses the same route distance as the map.</p>
-                <div className="passenger-profile-selector">
-                  <label className="input-label">Fuel type</label>
-                  <select
-                    value={privateCarFuelType}
-                    onChange={(e) => setPrivateCarFuelType(e.target.value)}
-                    className="departure-select"
-                  >
-                    <option value="petrol">Petrol (default ~15 km/L, 2.31 kg CO₂/L)</option>
-                    <option value="diesel">Diesel (default ~18 km/L, 2.68 kg CO₂/L)</option>
-                    <option value="cng">CNG (default ~28 km/kg, 2.75 kg CO₂/kg)</option>
-                  </select>
-                </div>
-              </section>
-
-              {/* Future Scaling Parameters Preview Card */}
-            </>
-          )}
 
           {/* OSRM Router Loading Indicator */}
           {isLoadingRoute && (
@@ -847,11 +1050,17 @@ function App() {
             <div className="optimizer-analytics fade-in">
               <div className="telemetry-grid">
                 <div className="telemetry-card">
-                  <span className="stat-label">Road Distance</span>
+                  <span className="stat-label">
+                    Road Distance
+                    <MeasuredErrorBadge error={accuracy.distance} />
+                  </span>
                   <span className="stat-val">{roadDistance} <span className="stat-unit">km</span></span>
                 </div>
                 <div className="telemetry-card eco">
-                  <span className="stat-label">{etaLabel}</span>
+                  <span className="stat-label">
+                    {etaLabel}
+                    {!isLoadingGoogle && <MeasuredErrorBadge error={accuracy.eta} />}
+                  </span>
                   <span className="stat-val">
                     {isLoadingGoogle ? (
                       <span className="spinner-mini" style={{ display: 'inline-block', verticalAlign: 'middle', marginRight: '6px' }}></span>
@@ -870,14 +1079,6 @@ function App() {
                 </div>
                 <p className="card-subtitle">Pick a mode to update the map and details. Open the full comparison anytime.</p>
 
-                <button
-                  type="button"
-                  className="choose-mode-btn"
-                  onClick={() => setIsLongWalkPromptOpen(true)}
-                >
-                  🚍 Choose mode of transport
-                </button>
-
                 <div className="mode-comparison-strip" role="tablist" aria-label="Travel mode">
                   {recommendations.map((r) => {
                     const me = exposure?.ok
@@ -890,7 +1091,7 @@ function App() {
                         role="tab"
                         aria-selected={selectedTransit === r.id}
                         className={`mode-strip-btn ${selectedTransit === r.id ? 'active' : ''}`}
-                        onClick={() => setSelectedTransit(r.id)}
+                        onClick={() => selectMode(r.id)}
                       >
                         <span className="mode-strip-icon">{r.icon}</span>
                         <span className="mode-strip-label">{r.id === 'electric-bus' ? 'BRTS' : r.id === 'auto-pool' ? 'Auto Pool' : 'Private Car'}</span>
@@ -940,12 +1141,12 @@ function App() {
                           {selectedMode.id === 'private-car' ? (
                             <>Fuel cost: <strong style={{ color: '#f8fafc' }}>₹{Number(selectedMode.tripCost).toFixed(2)}</strong></>
                           ) : (
-                            <>CO₂: <strong style={{ color: '#f8fafc' }}>{selectedMode.co2Emissions} kg</strong></>
+                            <>CO₂: <strong style={{ color: '#f8fafc' }}>{buildCo2(selectedMode)}</strong></>
                           )}
                         </div>
                         <div>
                           {selectedMode.id === 'private-car' ? (
-                            <>CO₂: <strong style={{ color: '#f8fafc' }}>{selectedMode.co2Emissions} kg</strong></>
+                            <>CO₂: <strong style={{ color: '#f8fafc' }}>{buildCo2(selectedMode)}</strong></>
                           ) : (
                             <>Walk: <strong style={{ color: '#f8fafc' }}>{selectedMode.walkingRequiredMeters ? `${(selectedMode.walkingRequiredMeters / 1000).toFixed(2)} km` : selectedMode.brtsItinerary ? `${selectedMode.brtsItinerary.walkingDistanceKm.toFixed(2)} km` : '—'}</strong></>
                           )}
@@ -959,13 +1160,42 @@ function App() {
                         </div>
                       )}
 
-                      {selectedMode.id === 'private-car' && (
-                        <div className="brts-detail-specs" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '0.84rem', color: '#cbd5e1' }}>
-                          <div>Fuel: <strong style={{ color: '#f8fafc' }}>{selectedMode.privateCarFuelType === 'diesel' ? 'Diesel' : selectedMode.privateCarFuelType === 'cng' ? 'CNG' : 'Petrol'}</strong></div>
-                          <div>Mileage assumed: <strong style={{ color: '#f8fafc' }}>{selectedMode.privateCarMileageKmpl} km/{selectedMode.privateCarFuelUnit || 'L'}</strong></div>
-                          <div>Price assumed: <strong style={{ color: '#f8fafc' }}>₹{selectedMode.privateCarFuelPricePerLitre}/{selectedMode.privateCarFuelUnit || 'L'}</strong></div>
-                          <div>CO₂ factor: <strong style={{ color: '#f8fafc' }}>{selectedMode.privateCarCo2KgPerLitre} kg/{selectedMode.privateCarFuelUnit || 'L'}</strong></div>
+                      {selectedMode.id === 'electric-bus' && (
+                        <div className="fare-profile-bar">
+                          <div className="fare-profile-bar-info">
+                            <span className="fare-profile-bar-label">Fare profile</span>
+                            <span className="fare-profile-bar-value">
+                              {(FARE_CONFIG.PASSENGER_PROFILES[passengerProfile] || FARE_CONFIG.PASSENGER_PROFILES.standard).name}
+                            </span>
+                          </div>
+                          <button type="button" className="fare-profile-edit-btn" onClick={() => setIsFareModalOpen(true)}>
+                            ✏️ Edit
+                          </button>
                         </div>
+                      )}
+
+                      {selectedMode.id === 'private-car' && (
+                        <>
+                          <div className="fare-profile-bar">
+                            <div className="fare-profile-bar-info">
+                              <span className="fare-profile-bar-label">Fuel type</span>
+                              <span className="fare-profile-bar-value">
+                                {selectedMode.privateCarFuelType === 'diesel' ? 'Diesel' : selectedMode.privateCarFuelType === 'cng' ? 'CNG' : 'Petrol'}
+                                {' · '}{selectedMode.privateCarCo2KgPerLitre} kg CO₂/{selectedMode.privateCarFuelUnit || 'L'}
+                              </span>
+                            </div>
+                            <button type="button" className="fare-profile-edit-btn" onClick={() => setIsCarFuelModalOpen(true)}>
+                              ✏️ Edit
+                            </button>
+                          </div>
+
+                          <div className="brts-detail-specs" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '0.84rem', color: '#cbd5e1' }}>
+                            <div>Fuel: <strong style={{ color: '#f8fafc' }}>{selectedMode.privateCarFuelType === 'diesel' ? 'Diesel' : selectedMode.privateCarFuelType === 'cng' ? 'CNG' : 'Petrol'}</strong></div>
+                            <div>Mileage assumed: <strong style={{ color: '#f8fafc' }}>{selectedMode.privateCarMileageKmpl} km/{selectedMode.privateCarFuelUnit || 'L'}</strong></div>
+                            <div>Price assumed: <strong style={{ color: '#f8fafc' }}>₹{selectedMode.privateCarFuelPricePerLitre}/{selectedMode.privateCarFuelUnit || 'L'}</strong></div>
+                            <div>CO₂ factor: <strong style={{ color: '#f8fafc' }}>{selectedMode.privateCarCo2KgPerLitre} kg/{selectedMode.privateCarFuelUnit || 'L'}</strong></div>
+                          </div>
+                        </>
                       )}
 
                       {selectedMode.id === 'auto-pool' ? (
@@ -1012,7 +1242,7 @@ function App() {
                       </div>
                       <div className="metric-col">
                         <span className="m-label">CO₂</span>
-                        <span className="m-val">{selectedMode.co2Emissions} kg</span>
+                        <span className="m-val">{buildCo2(selectedMode)}</span>
                       </div>
                       <div className="metric-col">
                         <span className="m-label">Convenience</span>
@@ -1023,6 +1253,15 @@ function App() {
                     <button type="button" className="action-btn-secondary" onClick={() => setIsLongWalkPromptOpen(true)}>
                       Open side-by-side comparison
                     </button>
+
+                    {isRoadMode(selectedMode.id) && (
+                      <RouteVariantCards
+                        routeOptions={roadRouteOptions}
+                        selectedVariant={selectedRouteVariant}
+                        onSelectVariant={setSelectedRouteVariant}
+                        isLoading={isLoadingRouteOptions}
+                      />
+                    )}
 
                     <ExposureCard
                       exposure={exposure}
@@ -1073,7 +1312,8 @@ function App() {
           source={source}
           destination={destination}
           selectionMode={selectionMode}
-          routeCoordinates={routeCoordinates}
+          routeCoordinates={activeRouteCoordinates}
+          routeAlternatives={inactiveRouteAlternatives}
           onSelectCoords={handleSelectCoords}
           selectedTransit={selectedTransit}
           brtsItinerary={activeModeItinerary}
@@ -1087,6 +1327,24 @@ function App() {
             sourceDistance={sourceNearestStation?.distanceKm ?? 0}
             destinationDistance={destinationNearestStation?.distanceKm ?? 0}
             onSelect={handleLongWalkChoice}
+            onClose={() => setIsLongWalkPromptOpen(false)}
+            selectedId={selectedTransit}
+          />
+        )}
+
+        {isFareModalOpen && (
+          <FareProfileModal
+            selectedId={passengerProfile}
+            onSelect={setPassengerProfile}
+            onClose={() => setIsFareModalOpen(false)}
+          />
+        )}
+
+        {isCarFuelModalOpen && (
+          <CarFuelModal
+            selectedId={carFuelType}
+            onSelect={setCarFuelType}
+            onClose={() => setIsCarFuelModalOpen(false)}
           />
         )}
       </main>

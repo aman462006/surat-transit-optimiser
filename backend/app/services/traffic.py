@@ -102,13 +102,21 @@ def _tomtom_depart_at(departure_time: str):
 
 
 def fetch_tomtom_traffic(source: dict, dest: dict, departure_time: str,
-                         base_duration_mins: float, distance_km: float = None) -> dict:
-    """Query the TomTom Routing API for a real traffic-aware ETA."""
+                         base_duration_mins: float, distance_km: float = None,
+                         waypoints: list = None) -> dict:
+    """Query the TomTom Routing API for a real traffic-aware ETA.
+
+    When `waypoints` is given, TomTom is forced to route through those points,
+    so a specific road-route alternative gets its OWN traffic-aware ETA instead
+    of TomTom always returning its single fastest path.
+    """
     api_key = os.environ.get("TOMTOM_API_KEY", "").strip()
     if not api_key:
         return simulate_surat_traffic(source, dest, departure_time, base_duration_mins, distance_km)
 
-    loc = f"{source['lat']},{source['lng']}:{dest['lat']},{dest['lng']}"
+    # Build "src : wp1 : wp2 : ... : dest" — TomTom routes through them in order.
+    points = [source] + (waypoints or []) + [dest]
+    loc = ":".join(f"{p['lat']},{p['lng']}" for p in points)
     params = {
         "key": api_key,
         "traffic": "true",
@@ -145,6 +153,10 @@ def fetch_tomtom_traffic(source: dict, dest: dict, departure_time: str,
             status, color = "🟡 Moderate Traffic", "traffic-moderate"
             description = f"Live TomTom traffic — moderate congestion, +{delay_mins} min delay."
 
+        # Also run the offline calibrated model so the frontend can report the
+        # MEASURED error of our own engine against this live ground-truth ETA.
+        model = simulate_surat_traffic(source, dest, departure_time, base_duration_mins, distance_km)
+
         return {
             "isSimulated": False,
             "source": "tomtom",
@@ -155,6 +167,9 @@ def fetch_tomtom_traffic(source: dict, dest: dict, departure_time: str,
             "color": color,
             "description": description,
             "providerDistance": distance_val,
+            # Calibrated-model prediction for the same trip (for measured-error display).
+            "modelTrafficDuration": model["trafficDuration"],
+            "modelStandardDuration": model["standardDuration"],
         }
     except Exception as err:  # noqa: BLE001 — any failure falls back to the offline model
         result = simulate_surat_traffic(source, dest, departure_time, base_duration_mins, distance_km)
@@ -163,8 +178,9 @@ def fetch_tomtom_traffic(source: dict, dest: dict, departure_time: str,
 
 
 def fetch_traffic(source: dict, dest: dict, departure_time: str,
-                  base_duration_mins: float, distance_km: float = None) -> dict:
+                  base_duration_mins: float, distance_km: float = None,
+                  waypoints: list = None) -> dict:
     """Public entry point: TomTom when a key is configured, else the Surat model."""
     if not source or not dest:
         return None
-    return fetch_tomtom_traffic(source, dest, departure_time, base_duration_mins, distance_km)
+    return fetch_tomtom_traffic(source, dest, departure_time, base_duration_mins, distance_km, waypoints)

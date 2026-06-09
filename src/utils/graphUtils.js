@@ -202,6 +202,64 @@ export const generateRouteInstructions = (itinerary) => {
 };
 
 /**
+ * Binary Min-Heap keyed on a node's `f` score (g + h).
+ *
+ * Backs the A* frontier. Replaces a linear O(n) scan-for-minimum with
+ * O(log n) push/pop, so extracting the cheapest state no longer costs a full
+ * sweep of the queue every iteration.
+ *
+ * Standard array-backed heap: for the node at index i, its children live at
+ * 2i+1 and 2i+2 and its parent at (i-1)/2. push() bubbles a new node UP until
+ * its parent is no larger; pop() removes the root (the minimum), moves the last
+ * node to the root, then sifts it DOWN past its smaller child to restore order.
+ */
+class MinHeap {
+  constructor() {
+    this.nodes = [];
+  }
+
+  get size() {
+    return this.nodes.length;
+  }
+
+  push(node) {
+    const nodes = this.nodes;
+    nodes.push(node);
+    // Bubble up: swap with parent while this node is cheaper than its parent.
+    let i = nodes.length - 1;
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (nodes[parent].f <= nodes[i].f) break;
+      [nodes[parent], nodes[i]] = [nodes[i], nodes[parent]];
+      i = parent;
+    }
+  }
+
+  pop() {
+    const nodes = this.nodes;
+    const top = nodes[0];
+    const last = nodes.pop();
+    // If nodes still remain, move the last element to the root and sift down.
+    if (nodes.length > 0) {
+      nodes[0] = last;
+      let i = 0;
+      const n = nodes.length;
+      while (true) {
+        const left = 2 * i + 1;
+        const right = 2 * i + 2;
+        let smallest = i;
+        if (left < n && nodes[left].f < nodes[smallest].f) smallest = left;
+        if (right < n && nodes[right].f < nodes[smallest].f) smallest = right;
+        if (smallest === i) break;
+        [nodes[smallest], nodes[i]] = [nodes[i], nodes[smallest]];
+        i = smallest;
+      }
+    }
+    return top;
+  }
+}
+
+/**
  * Dynamic Transit Graph Traversal Engine (Adjacency BFS Pathfinder)
  * Resolves optimal paths across explicit adjacent-station corridors.
  * 
@@ -244,17 +302,17 @@ export const generateRouteInstructions = (itinerary) => {
  */
 export const findOptimalTransitRoute = (startId, endId, transferAvoidanceWeight = 0.1) => {
   const graph = buildTransitGraph();
-  console.log(`[Dijkstra Transit] Solving shortest time-path between "${BRTS_STATIONS[startId].name}" (${startId}) and "${BRTS_STATIONS[endId].name}" (${endId})`);
-  console.log(`[Dijkstra Transit] Active Avoidance Weight: ${transferAvoidanceWeight.toFixed(2)}`);
+  console.log(`[A* Transit] Solving shortest time-path between "${BRTS_STATIONS[startId].name}" (${startId}) and "${BRTS_STATIONS[endId].name}" (${endId})`);
+  console.log(`[A* Transit] Active Avoidance Weight: ${transferAvoidanceWeight.toFixed(2)}`);
 
   if (startId === endId) return null;
 
   /**
    * =========================================================================
-   * TIME-WEIGHTED DIJKSTRA OVER A ROUTE-AWARE STATE GRAPH
+   * TIME-WEIGHTED A* OVER A ROUTE-AWARE STATE GRAPH
    * =========================================================================
    * Instead of brute-force enumerating every simple path (exponential as the
-   * network grows), we run Dijkstra's shortest-path algorithm over an
+   * network grows), we run the A* shortest-path algorithm over an
    * expanded state space:
    *
    *   state = (stationId, currentRouteId)
@@ -269,28 +327,52 @@ export const findOptimalTransitRoute = (startId, endId, transferAvoidanceWeight 
    *                              or 3-min platform walk + headway/2 on transfer)
    *            + transferPenalty (transferAvoidanceWeight * 24, only on transfer)
    *
-   * Dijkstra pops states in increasing cost, so the first time the destination
-   * station is settled we have the optimal (lowest composite-time) path. We
-   * still cap at 2 transfers to keep itineraries realistic.
+   * A* orders the frontier by f = g + h, where g is the known cost so far and
+   * h is an ADMISSIBLE heuristic — a guaranteed lower bound on the remaining
+   * time to the destination. We use the straight-line (great-circle) distance
+   * to the goal divided by the maximum corridor cruise speed (42 km/h):
+   *
+   *   h(station) = haversine(station, end) / 42 * 60   (minutes)
+   *
+   * No path segment can travel faster than 42 km/h, and dwell/boarding/transfer
+   * costs only ADD time, so h never overestimates (admissible) and satisfies
+   * the triangle inequality (consistent). With a consistent heuristic, the
+   * first time the destination is popped we have the optimal path — and because
+   * the search is pulled toward the goal it settles far fewer states than the
+   * uniform-cost (Dijkstra) expansion did. We still cap at 2 transfers to keep
+   * itineraries realistic.
    */
   const penaltyPerTransfer = transferAvoidanceWeight * 24;
   const START = '__start__';
+  const MAX_CRUISE_KMH = 42; // fastest possible travel => lower bound on remaining time
 
-  const dist = {};                 // stateKey -> best known cost
+  const endStation = BRTS_STATIONS[endId];
+  // Admissible + consistent heuristic: best-case (straight-line, top-speed) time to goal.
+  const heuristic = (stationId) => {
+    const s = BRTS_STATIONS[stationId];
+    return (calculateHaversine(s.lat, s.lng, endStation.lat, endStation.lng) / MAX_CRUISE_KMH) * 60;
+  };
+
+  const dist = {};                 // stateKey -> best known cost g
   const prev = {};                 // stateKey -> { fromKey, edge }
   const startKey = `${startId}|${START}`;
   dist[startKey] = 0;
 
-  // Lightweight priority queue (linear extract-min — ample for this graph size)
-  const pq = [{ key: startKey, stationId: startId, routeId: START, transfers: 0, cost: 0 }];
+  // Binary min-heap priority queue ordered by f = g + h. O(log n) push/pop
+  // replaces the former linear scan for the cheapest frontier node.
+  const pq = new MinHeap();
+  pq.push({
+    key: startKey,
+    stationId: startId,
+    routeId: START,
+    transfers: 0,
+    cost: 0,
+    f: heuristic(startId)
+  });
   let bestEndKey = null;
 
-  while (pq.length > 0) {
-    let minIdx = 0;
-    for (let i = 1; i < pq.length; i++) {
-      if (pq[i].cost < pq[minIdx].cost) minIdx = i;
-    }
-    const cur = pq.splice(minIdx, 1)[0];
+  while (pq.size > 0) {
+    const cur = pq.pop();
 
     // Skip stale queue entries superseded by a cheaper relaxation
     if (cur.cost > (dist[cur.key] ?? Infinity)) continue;
@@ -321,7 +403,8 @@ export const findOptimalTransitRoute = (startId, endId, transferAvoidanceWeight 
           stationId: edge.nextStationId,
           routeId: edge.routeId,
           transfers: newTransfers,
-          cost: nextCost
+          cost: nextCost,
+          f: nextCost + heuristic(edge.nextStationId)
         });
       }
     }
@@ -335,7 +418,7 @@ export const findOptimalTransitRoute = (startId, endId, transferAvoidanceWeight 
     }
   }
   if (!bestEndKey) {
-    console.log('[Dijkstra Transit] No connected transit path found.');
+    console.log('[A* Transit] No connected transit path found.');
     return null;
   }
 
@@ -348,7 +431,7 @@ export const findOptimalTransitRoute = (startId, endId, transferAvoidanceWeight 
   }
   if (edges.length === 0) return null;
 
-  console.log(`[Dijkstra Transit] Optimal path settled with cost ${dist[bestEndKey].toFixed(1)} (incl. penalties), ${edges.length} hops.`);
+  console.log(`[A* Transit] Optimal path settled with cost ${dist[bestEndKey].toFixed(1)} (incl. penalties), ${edges.length} hops.`);
 
   // Process edges and reconstruct/collapse consecutive edges into continuous ride legs
   const buildRoute = (edges) => {

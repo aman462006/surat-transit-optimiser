@@ -16,6 +16,12 @@
 // Cache resolved geometries so panning / re-renders never re-hit the network.
 const _roadPathCache = new Map();
 
+// Cache alternative-route sets per source→destination pair.
+const _altRouteCache = new Map();
+
+// Cache single via-routes (used by the BFS generator) per waypoint sequence.
+const _viaRouteCache = new Map();
+
 // OSRM URLs have a practical length limit — keep waypoint count sane.
 const MAX_WAYPOINTS = 25;
 
@@ -70,6 +76,100 @@ export const fetchRoadPath = async (positions) => {
   } catch (err) {
     console.warn('OSRM road-path lookup failed, using straight line:', err.message);
     _roadPathCache.set(key, null); // cache the failure so we don't retry every render
+    return null;
+  }
+};
+
+/**
+ * Fetches several distinct road routes between two points (OSRM `alternatives`).
+ *
+ * Unlike fetchRoadPath (which snaps a fixed set of waypoints to one geometry),
+ * this asks OSRM for the fastest route PLUS a few genuinely different corridors
+ * between the same source and destination — the raw material for picking a
+ * cleaner-air or balanced path rather than only the fastest one.
+ *
+ * @param {{lat:number,lng:number}} source
+ * @param {{lat:number,lng:number}} destination
+ * @returns {Promise<Array<{coordinates:Array<[number,number]>,distanceKm:number,durationMins:number}>|null>}
+ *          One entry per distinct route ([lat,lng] geometry + metrics), or null
+ *          if routing fails (caller falls back to a straight line).
+ */
+export const fetchRoadAlternatives = async (source, destination) => {
+  if (!source || !destination) return null;
+
+  const key = `${source.lat.toFixed(5)},${source.lng.toFixed(5)};${destination.lat.toFixed(5)},${destination.lng.toFixed(5)}`;
+  if (_altRouteCache.has(key)) return _altRouteCache.get(key);
+
+  // OSRM expects {lng},{lat}. alternatives=3 asks for up to 3 extra routes; the
+  // public server returns however many genuinely distinct ones it finds (often 1–3).
+  const coordString = `${source.lng},${source.lat};${destination.lng},${destination.lat}`;
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?alternatives=3&overview=full&geometries=geojson`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`OSRM returned status ${response.status}`);
+
+    const data = await response.json();
+    if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+      throw new Error('OSRM returned no route');
+    }
+
+    const routes = data.routes.map((route) => ({
+      coordinates: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+      distanceKm: +(route.distance / 1000).toFixed(2),
+      durationMins: Math.round(route.duration / 60)
+    }));
+
+    _altRouteCache.set(key, routes);
+    return routes;
+  } catch (err) {
+    console.warn('OSRM alternatives lookup failed:', err.message);
+    _altRouteCache.set(key, null); // cache the failure so we don't retry every render
+    return null;
+  }
+};
+
+/**
+ * Routes through an ordered list of waypoints and returns the geometry WITH its
+ * metrics. Unlike fetchRoadPath (geometry only), this keeps distance and
+ * free-flow duration — what the BFS generator needs to score each corridor it
+ * forces through different via-points.
+ *
+ * @param {Array<[number, number]>} waypoints - [lat,lng] pairs, >= 2 (source … dest).
+ * @returns {Promise<{coordinates:Array<[number,number]>,distanceKm:number,durationMins:number}|null>}
+ *          The road route, or null if routing fails.
+ */
+export const fetchRoadRoute = async (waypoints) => {
+  if (!Array.isArray(waypoints) || waypoints.length < 2) return null;
+
+  const pts = sampleWaypoints(waypoints, MAX_WAYPOINTS);
+  const key = pts.map(([lat, lng]) => `${lat.toFixed(5)},${lng.toFixed(5)}`).join(';');
+  if (_viaRouteCache.has(key)) return _viaRouteCache.get(key);
+
+  // OSRM expects {lng},{lat} pairs separated by semicolons.
+  const coordString = pts.map(([lat, lng]) => `${lng},${lat}`).join(';');
+  const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`OSRM returned status ${response.status}`);
+
+    const data = await response.json();
+    if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+      throw new Error('OSRM returned no route');
+    }
+
+    const route = data.routes[0];
+    const result = {
+      coordinates: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+      distanceKm: +(route.distance / 1000).toFixed(2),
+      durationMins: Math.round(route.duration / 60)
+    };
+    _viaRouteCache.set(key, result);
+    return result;
+  } catch (err) {
+    console.warn('OSRM via-route lookup failed:', err.message);
+    _viaRouteCache.set(key, null);
     return null;
   }
 };

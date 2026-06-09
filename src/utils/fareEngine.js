@@ -48,37 +48,60 @@ export const FARE_CONFIG = {
   // 'integrated' - Free platform-level transfers inside the station pay-zone (₹0.00 penalty)
   transferMode: 'integrated',
 
-  // Supportive passenger profiles and discount rates modeled on SMC policies
+  // Supportive passenger profiles and discount rates modeled on SMC policies.
+  // `info`/`howToAvail`/`availUrl` power the in-app fare-profile chooser. Discount
+  // rates are this app's modelled calibration — confirm current official fares at
+  // the linked SMC Sitilink pages.
   PASSENGER_PROFILES: {
     standard: {
       id: 'standard',
       name: 'Standard Fare',
       discountRate: 0.0,
-      description: 'Standard single-journey electronic ticket'
+      description: 'Standard single-journey electronic ticket',
+      info: 'Pay-as-you-go single-journey ticket bought at the station counter or in the Sitilink app. No verification or registration needed — the default for occasional riders.',
+      howToAvail: 'Just tap in and pay the listed fare at the BRTS station, or book a single ticket in the Surat Sitilink app.',
+      availUrl: 'https://www.suratsitilink.org/GetFare.aspx',
+      availLabel: 'See official Sitilink fares'
     },
     digital: {
       id: 'digital',
       name: 'Digital Ticket (20% Off)',
       discountRate: 0.20,
-      description: 'Official Sitilink App mobile ticket discount'
+      description: 'Official Sitilink App mobile ticket / Surat Money Card discount',
+      info: 'Cashless fares are cheaper than paper tickets. Book journeys in the official Surat Sitilink app or tap a Surat Money Card to ride at a discounted rate.',
+      howToAvail: 'Download the official Surat Sitilink app (or get a Surat Money Card), top it up, and book/tap to travel.',
+      availUrl: 'https://www.suratsitilink.org/download_sitilink_mobile_app.aspx',
+      availLabel: 'Download the Surat Sitilink app'
     },
     student: {
       id: 'student',
       name: 'Student Discount (50% Off)',
       discountRate: 0.50,
-      description: 'Verified student pass issued by Surat Municipal Corporation'
+      description: 'Concessional student travel under the SARAL pass scheme',
+      info: 'Concessional travel for students under SMC Sitilink’s SARAL prepaid pass scheme — a big saving for daily college/school commutes.',
+      howToAvail: 'Apply for a SARAL student pass with a bonafide certificate from a Government-approved educational institution plus a passport-size photo, at a Sitilink pass centre or online.',
+      availUrl: 'https://www.suratmunicipal.gov.in/Services/Sitilink/SaralPassTravelScheme',
+      availLabel: 'Apply for the SARAL student pass'
     },
     senior: {
       id: 'senior',
       name: 'Senior Citizen (30% Off)',
       discountRate: 0.30,
-      description: 'Supportive fare structure for citizens aged 60+'
+      description: 'Concessional fare for senior citizens (60+)',
+      info: 'Supportive, discounted travel for senior citizens, issued against a Government senior-citizen card under the SARAL pass scheme.',
+      howToAvail: 'Apply for a SARAL senior-citizen pass with a Government-issued senior citizen card / age proof and a passport-size photo at a Sitilink pass centre.',
+      availUrl: 'https://www.suratmunicipal.gov.in/Services/Sitilink/SaralPassTravelScheme',
+      availLabel: 'Apply for the SARAL senior pass'
     },
     pass_holder: {
       id: 'pass_holder',
       name: 'Daily/Monthly Pass Holder',
-      discountRate: 1.00, // 100% discount per ride for active pass holders (Day Pass is ₹30 flat)
-      description: 'Unlimited transit pass. Displays as ₹0 per trip.'
+      discountRate: 1.00, // 100% discount per ride for active pass holders (the pass is paid for upfront)
+      description: 'Unlimited prepaid SARAL pass — shows as ₹0 per trip',
+      info: 'A SARAL prepaid pass gives unlimited rides for a fixed period, so each individual trip costs nothing extra — the per-trip fare here shows as ₹0.',
+      howToAvail: 'Buy or recharge a SARAL pass through the Surat Sitilink app or at any Sitilink pass centre, then tap to ride as often as you like.',
+      availUrl: 'https://www.suratmunicipal.gov.in/Services/Sitilink/SaralPassTravelScheme',
+      availLabel: 'Get / recharge a SARAL pass'
     }
   }
 };

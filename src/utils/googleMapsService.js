@@ -175,7 +175,7 @@ const BACKEND_URL =
  * @param {number} distanceKm - OSRM driving distance (km)
  * @returns {Promise<Object>} traffic telemetry (same shape for live and model)
  */
-export const getTrafficEta = async (source, dest, departureTime, osrmDurationMins, distanceKm = null) => {
+export const getTrafficEta = async (source, dest, departureTime, osrmDurationMins, distanceKm = null, waypoints = null) => {
   if (!source || !dest) return null;
 
   try {
@@ -187,7 +187,10 @@ export const getTrafficEta = async (source, dest, departureTime, osrmDurationMin
         destination: dest,
         departureTime,
         baseDurationMins: Math.max(1, osrmDurationMins),
-        distanceKm: distanceKm || undefined
+        distanceKm: distanceKm || undefined,
+        // Pass a corridor's intermediate points so TomTom routes through it,
+        // giving this specific alternative its own traffic-aware ETA.
+        waypoints: waypoints && waypoints.length ? waypoints : undefined
       })
     });
     if (!response.ok) throw new Error(`Backend traffic API status ${response.status}`);
