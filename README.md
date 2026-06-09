@@ -4,8 +4,7 @@
 
 TransitOptima is a full-stack decision-support tool for urban mobility. It combines real road-network routing, traffic-aware ETAs, graph-based public-transit journey planning, and a live multi-source air-quality engine to answer a question most trip planners ignore: *"Which way is not just fastest or cheapest, but healthiest?"*
 
-<!-- TODO: add your live demo link once deployed -->
-**🔗 Live demo:** _coming soon (deploy to Vercel — see [DEPLOYMENT.md](DEPLOYMENT.md))_
+**🔗 Live demo:** **[surat-transit-optimiser-3e9j.vercel.app](https://surat-transit-optimiser-3e9j.vercel.app/)**
 
 <!-- TODO: drop a screenshot or GIF here — it is the single most valuable thing for reviewers -->
 <!-- ![TransitOptima screenshot](docs/screenshot.png) -->
