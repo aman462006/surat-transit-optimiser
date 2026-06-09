@@ -1,0 +1,7 @@
+# Pinned to floors that ship prebuilt wheels for Python 3.14 (cp314).
+# Older pins (e.g. pydantic 2.10) have no cp314 wheel and try to compile from Rust.
+fastapi>=0.118
+uvicorn[standard]>=0.34
+pydantic>=2.11
+httpx>=0.28
+python-dotenv>=1.0
