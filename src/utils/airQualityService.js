@@ -206,6 +206,24 @@ const interpolateCpcb = (samples, stations) => {
   };
 };
 
+/**
+ * Estimates the percentage uncertainty of an AQI/PM2.5 reading so the UI can
+ * show an honest "±X%" next to the number. This is an ESTIMATE (not a live
+ * measured error — there's no second ground-truth source to diff against),
+ * derived from how the value was sourced and how far the nearest sensor is:
+ *  - CPCB live sensors: most trustworthy; uncertainty grows with interpolation
+ *    distance from the nearest monitor.
+ *  - WAQI single station: slightly higher base, grows with distance.
+ *  - CAMS model: a coarse ~40 km grid, so a flat, higher baseline.
+ */
+export const estimateAqiUncertaintyPct = (source, stationDistanceKm) => {
+  if (source === 'model') return 30;            // coarse modelled grid
+  const d = stationDistanceKm || 0;
+  if (source === 'cpcb') return Math.min(40, Math.round(8 + 1.2 * d));
+  if (source === 'station') return Math.min(45, Math.round(12 + 1.5 * d));
+  return null;
+};
+
 /** Assembles the AMBIENT exposure summary (route air quality, mode-independent). */
 const buildResult = (base) => {
   const { avgAqi, peakAqi, avgPm25, avgPm10, segments, totalMeters } = base;
@@ -224,7 +242,9 @@ const buildResult = (base) => {
     segments,
     distanceKm: +(totalMeters / 1000).toFixed(2),
     aqiClass: classifyAqi(avgAqi),
-    pm25Class: classifyPm25(avgPm25)
+    pm25Class: classifyPm25(avgPm25),
+    // Honest ±% uncertainty estimate (source + sensor distance based).
+    uncertaintyPct: estimateAqiUncertaintyPct(base.source, base.stationDistanceKm)
   };
 };
 
@@ -232,15 +252,37 @@ const buildResult = (base) => {
 
 /**
  * Relative inhaled-PM2.5 multipliers vs ambient roadside air, by travel
- * microenvironment. Literature-informed defaults — tune here.
+ * microenvironment. Walking in open roadside air is the 100% reference (×1.0);
+ * every other mode is scaled to it. Each factor is the MIDPOINT of the measured
+ * exposure range for that microenvironment, and `reason` explains in one line
+ * why a single multiplier captures the whole picture for that mode.
+ *
+ * Source table (share of walking exposure), car assumed windows-closed:
+ *   Walking 100% · Auto-rickshaw 70–95% · Bus (windows open) 60–90% ·
+ *   Car (windows closed, AC) 20–60%.
  */
 export const MODE_EXPOSURE_FACTORS = {
-  'private-car': { factor: 0.5, label: 'enclosed cabin, AC recirculation' },
-  'auto-pool':   { factor: 1.5, label: 'open three-wheeler, in the traffic plume' },
-  'electric-bus':{ factor: 0.7, label: 'enclosed AC bus' }
+  'private-car': {
+    factor: 0.40,            // midpoint of 20–60% (windows closed, AC on)
+    range: [0.20, 0.60],
+    label: 'windows closed, AC recirculation',
+    reason: 'Sealed windows + AC recirculation and cabin filtration strip most roadside PM2.5, so one ×0.40 multiplier already nets enclosure, ventilation and filtered intake against a pedestrian.'
+  },
+  'auto-pool': {
+    factor: 0.83,            // midpoint of 70–95% (fully open three-wheeler)
+    range: [0.70, 0.95],
+    label: 'open three-wheeler, in the traffic plume',
+    reason: 'With no enclosure you breathe the exhaust plume almost like a pedestrian, so ×0.83 captures the only relief — slight dilution from the vehicle moving through the air.'
+  },
+  'electric-bus': {
+    factor: 0.75,            // midpoint of 60–90% (city bus cabin)
+    range: [0.60, 0.90],
+    label: 'high-floor bus cabin',
+    reason: 'A tall, large-volume cabin sits above and dilutes the kerbside plume to ×0.75, and the model time-blends this with the fully-exposed walk legs so first/last-mile breathing is still counted.'
+  }
 };
-const WALK_FACTOR = 1.2;   // fully exposed footpath + elevated breathing
-const RIDE_FACTOR = 0.7;   // enclosed AC bus cabin
+const WALK_FACTOR = 1.0;   // pedestrian in open roadside air — the 100% reference
+const RIDE_FACTOR = 0.75;  // inside the bus cabin (matches electric-bus factor)
 const DEFAULT_FACTOR = 1.0;
 
 /**
@@ -274,9 +316,14 @@ export const computeModeExposure = (ambient, { modeId, durationMins, itinerary }
   const effectivePm25 = +(ambient.avgPm25 * factor).toFixed(1);
   const hours = durationMins / 60;
   const isBlend = modeId === 'electric-bus' && itinerary;
+  const spec = MODE_EXPOSURE_FACTORS[modeId];
   return {
     factor,
-    factorLabel: isBlend ? 'AC bus + exposed walk legs' : (MODE_EXPOSURE_FACTORS[modeId]?.label || 'open / exposed'),
+    factorLabel: isBlend ? 'bus cabin + exposed walk legs' : (spec?.label || 'open / exposed'),
+    factorReason: isBlend
+      ? 'Time-weighted blend of the high-floor bus cabin (≈0.75 of roadside air) and the fully-exposed first/last-mile walk legs (×1.0), so both the ride and the walking breathing are counted.'
+      : (spec?.reason || 'Open / exposed travel, taken at full roadside air.'),
+    factorRange: spec?.range || null,
     effectivePm25,
     durationMins: Math.round(durationMins),
     dosePm25: +(effectivePm25 * hours).toFixed(1),                         // µg·h/m³

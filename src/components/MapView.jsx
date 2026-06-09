@@ -185,6 +185,7 @@ const MapView = ({
   destination,
   selectionMode,
   routeCoordinates,
+  routeAlternatives = [],
   onSelectCoords,
   selectedTransit = null,
   brtsItinerary = null
@@ -414,6 +415,28 @@ const MapView = ({
           4. Transfer station highlights (when available)
         */}
         
+        {/* Faint inactive road alternatives (car/auto) — drawn beneath the active route for comparison */}
+        {isDirectRoadMode && routeAlternatives.map((altPositions, i) => (
+          altPositions && altPositions.length > 1 && (
+            <Polyline
+              key={`alt-${i}`}
+              positions={altPositions}
+              pathOptions={{
+                color: '#94a3b8',
+                weight: 4,
+                opacity: 0.4,
+                dashArray: '4, 10',
+                lineCap: 'round',
+                lineJoin: 'round'
+              }}
+            >
+              <Tooltip sticky={true}>
+                <div className="route-tooltip">Alternative road corridor</div>
+              </Tooltip>
+            </Polyline>
+          )
+        ))}
+
         {/* Direct road route: primary for private car / auto pooling; background reference when BRTS is active */}
         {source && destination && routeCoordinates && routeCoordinates.length > 0 && (
           <Polyline

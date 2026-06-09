@@ -30,8 +30,8 @@ test('getModeExposureFactor: enclosed car < bus < open auto', () => {
   const car = getModeExposureFactor('private-car');
   const bus = getModeExposureFactor('electric-bus');
   const auto = getModeExposureFactor('auto-pool');
-  assert.equal(car, 0.5);
-  assert.equal(auto, 1.5);
+  assert.equal(car, 0.40);   // windows closed, AC: midpoint of 20–60%
+  assert.equal(auto, 0.83);  // open three-wheeler: midpoint of 70–95%
   assert.ok(car < bus && bus < auto, 'ordering car < bus < auto');
 });
 
@@ -40,8 +40,8 @@ test('getModeExposureFactor: BRTS blends walk + ride legs by time', () => {
     { type: 'walk', durationMins: 10 },
     { type: 'ride', durationMins: 30 }
   ] };
-  // (10*1.2 + 30*0.7) / 40 = 0.825
-  close(getModeExposureFactor('electric-bus', itinerary), 0.825, 0.02);
+  // (10*1.0 + 30*0.75) / 40 = 0.8125
+  close(getModeExposureFactor('electric-bus', itinerary), 0.8125, 0.02);
 });
 
 test('computeModeExposure: open auto inhales more than enclosed car (same trip)', () => {
@@ -49,10 +49,10 @@ test('computeModeExposure: open auto inhales more than enclosed car (same trip)'
   const auto = computeModeExposure(ambient, { modeId: 'auto-pool', durationMins: 30 });
   const car = computeModeExposure(ambient, { modeId: 'private-car', durationMins: 30 });
 
-  assert.equal(auto.effectivePm25, 60);   // 40 × 1.5
-  assert.equal(car.effectivePm25, 20);    // 40 × 0.5
-  close(auto.inhaledPm25Ug, 25.2);        // 60 × 0.84 × 0.5h
-  close(car.inhaledPm25Ug, 8.4);          // 20 × 0.84 × 0.5h
+  assert.equal(auto.effectivePm25, 33.2);  // 40 × 0.83
+  assert.equal(car.effectivePm25, 16);     // 40 × 0.40
+  close(auto.inhaledPm25Ug, 13.94);        // 33.2 × 0.84 × 0.5h
+  close(car.inhaledPm25Ug, 6.72);          // 16 × 0.84 × 0.5h
   assert.ok(auto.inhaledPm25Ug > car.inhaledPm25Ug, 'auto worse than car');
 });
 

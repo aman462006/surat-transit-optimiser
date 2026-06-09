@@ -18,7 +18,8 @@ What makes this more than a map demo:
 - **🫁 Personal pollution exposure per mode** — not just ambient AQI, but how much PM2.5 *you* inhale, adjusted for your travel microenvironment (an open auto-rickshaw exposes you to ~3× the dose of an enclosed AC car) and trip duration. Pollution becomes a real reason to pick one mode over another.
 - **🛰️ Honest, multi-source air quality** — a graceful hierarchy: **live CPCB ground sensors (data.gov.in)** → **WAQI station** → **Copernicus CAMS model**. The UI always states which source it used and how far the nearest sensor is — no precise-looking numbers pretending to be measured when they're modelled.
 - **🗺️ Real road-following routes** — BRTS and walking legs are snapped to the actual street network via OSRM, not drawn as straight lines.
-- **🚌 Graph-based BRTS journey planning** — Dijkstra over a station graph with transfers and first/last-mile walking legs.
+- **🚌 Graph-based BRTS journey planning** — A* over a station graph with transfers and first/last-mile walking legs.
+- **🛣️ Exposure-aware road routing (car & auto)** — a **breadth-first search** over a layered waypoint graph enumerates many candidate corridors between source and destination, each realised as a *real* street route via OSRM. They're ranked three ways: **Fastest**, **Cleanest Air** (lowest *average PM2.5 concentration* along the route — the cleanest air you breathe, regardless of time), and **Balanced** (½ × time + ½ × average PM2.5, both min–max normalised). Pick a corridor and the map redraws and re-measures it. When all corridors pass through near-identical air, the UI says so rather than faking a meaningful difference. BRTS is a fixed corridor, so it's exempt.
 - **🚦 Traffic-aware ETAs** — live TomTom traffic via a backend proxy, falling back to an on-device hour-by-hour Surat congestion model with Tapi-bridge queueing.
 - **🎨 Official US-EPA AQI guideline** — exact 6-band classification, colours, and health advice.
 
@@ -82,7 +83,7 @@ smart-transport-optimizer/
 │   └── utils/
 │       ├── geocodingService.js # Nominatim place search (Surat-biased)
 │       ├── osrmService.js      # snaps waypoints to road geometry
-│       ├── graphUtils.js       # BRTS station graph + Dijkstra + nearest station
+│       ├── graphUtils.js       # BRTS station graph + A* + nearest station
 │       ├── transitDataService.js
 │       ├── recommendationEngine.js
 │       ├── fareEngine.js
@@ -94,7 +95,7 @@ smart-transport-optimizer/
 │   ├── app/
 │   │   ├── main.py             # FastAPI app (see API endpoints below)
 │   │   ├── schemas.py          # Pydantic request/response models
-│   │   └── services/           # geo, graph (Dijkstra), fares, traffic
+│   │   └── services/           # geo, graph (A*), fares, traffic
 │   ├── requirements.txt
 │   └── .env.example            # TOMTOM_API_KEY
 └── tests/                      # node:test unit tests

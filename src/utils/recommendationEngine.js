@@ -37,16 +37,21 @@ export const GRID_CO2_KG_PER_KWH = 0.757;
 /**
  * Per-unit tailpipe CO₂ factors + city default tank-to-wheel assumptions for the private car.
  * Petrol/diesel are billed per LITRE; CNG is billed per KILOGRAM (mileage in km/kg, CO₂ in kg/kg).
- *   - Petrol: 2.31 kg CO₂/L   - Diesel: 2.68 kg CO₂/L   - CNG: 2.75 kg CO₂/kg (methane stoichiometric)
+ *
+ * ASSUMED BASE VALUES (Surat, current) — surfaced in the UI so users see what the fares/CO₂ use:
+ *   - Petrol: ₹101.83/L · 13 km/L · 2.33 kg CO₂/L  (range 2.3–2.35 kg/L, midpoint used)
+ *   - Diesel: ₹97.92/L  · 13 km/L · 2.65 kg CO₂/L  (range 2.6–2.7 kg/L, midpoint used)
+ *   - CNG:    ₹85/kg    · 28 km/kg · 2.70 kg CO₂/kg (range 2.66–2.75 kg/kg, midpoint used)
+ * Petrol and diesel prices are assumed pump rates and may vary day-to-day.
  */
 export const PRIVATE_CAR_FUELS = {
-  petrol: { unit: 'L',  co2PerUnit: 2.31, mileage: 15, pricePerUnit: 96.0 },
-  diesel: { unit: 'L',  co2PerUnit: 2.68, mileage: 18, pricePerUnit: 92.0 },
-  cng:    { unit: 'kg', co2PerUnit: 2.75, mileage: 28, pricePerUnit: 79.0 }
+  petrol: { unit: 'L',  co2PerUnit: 2.33, co2Range: [2.3, 2.35],  mileage: 13, pricePerUnit: 101.83, priceAssumed: true },
+  diesel: { unit: 'L',  co2PerUnit: 2.65, co2Range: [2.6, 2.7],   mileage: 13, pricePerUnit: 97.92,  priceAssumed: true },
+  cng:    { unit: 'kg', co2PerUnit: 2.70, co2Range: [2.66, 2.75], mileage: 28, pricePerUnit: 85.0,   priceAssumed: false }
 };
 
-/** Tailpipe CO₂ per kg of CNG combustion (≈methane stoichiometric: 44/16). */
-export const CO2_KG_PER_KG_CNG = 2.75;
+/** Tailpipe CO₂ per kg of CNG combustion (range 2.66–2.75 kg/kg, midpoint used). */
+export const CO2_KG_PER_KG_CNG = 2.70;
 
 export const TRANSIT_MODES = {
   BUS: {
@@ -87,8 +92,8 @@ export const TRANSIT_MODES = {
     autoPerKm: 13,             // ₹ per km beyond the base distance
     autoOccupancy: 3,          // pooled riders sharing one auto rickshaw
 
-    // CO2 = (distanceKm / autoCngMileage) × 2.75 kg CO2/kg — FULL trip total (not per-person)
-    autoCngMileage: 30,        // km per kg of CNG (avg city auto, range 25–35 km/kg)
+    // CO2 = (distanceKm / autoCngMileage) × 2.70 kg CO2/kg — FULL trip total (not per-person)
+    autoCngMileage: 33,        // km per kg of CNG (avg city auto)
 
     // Future architectural attributes (Scale stubs):
     safetyIndex: 82,           // Out of 100 (Regulated fleet safety)
@@ -105,8 +110,8 @@ export const TRANSIT_MODES = {
     costPerKm: 0, // Handled dynamically via fuel calculations
     /** Legacy g CO₂/pass-km; private-car emissions are computed from fuel used × per-unit CO₂ factor. */
     emissionFactor: 154.0,
-    mileageKmpl: 15.0,
-    fuelPricePerLitre: 96.0,
+    mileageKmpl: 13.0,
+    fuelPricePerLitre: 101.83,
     defaultFuelType: 'petrol', // petrol | diesel | cng (see PRIVATE_CAR_FUELS)
     // Future architectural attributes (Scale stubs):
     safetyIndex: 75,           // Out of 100 (Subject to high accident rates)
@@ -212,18 +217,28 @@ export const generateRecommendations = (
       const fuelUsed = parseFloat((distance / mileage).toFixed(3));
       const tripCost = parseFloat((fuelUsed * fuelPrice).toFixed(2));
       const co2Emissions = parseFloat((fuelUsed * fuelSpec.co2PerUnit).toFixed(3));
+      // Display range: fuel used × [min, max] CO₂ factor
+      const co2EmissionsRange = fuelSpec.co2Range
+        ? [
+            parseFloat((fuelUsed * fuelSpec.co2Range[0]).toFixed(3)),
+            parseFloat((fuelUsed * fuelSpec.co2Range[1]).toFixed(3))
+          ]
+        : null;
 
       return {
         ...mode,
         travelTime,
         tripCost,
         co2Emissions,
+        co2EmissionsRange, // [min, max] kg CO₂ for display
         fuelUsedLitres: fuelUsed, // amount of fuel used (in fuelUnit)
         privateCarFuelType: fuelType,
         privateCarFuelUnit: fuelSpec.unit, // 'L' or 'kg'
         privateCarMileageKmpl: mileage,
         privateCarFuelPricePerLitre: fuelPrice,
-        privateCarCo2KgPerLitre: fuelSpec.co2PerUnit, // kg CO2 per fuelUnit
+        privateCarCo2KgPerLitre: fuelSpec.co2PerUnit, // kg CO2 per fuelUnit (midpoint of range)
+        privateCarCo2Range: fuelSpec.co2Range,        // [min, max] kg CO2 per fuelUnit
+        privateCarPriceAssumed: fuelSpec.priceAssumed, // pump price is an assumption (petrol/diesel)
         convenienceSummary: 'Door-to-door'
       };
     }
@@ -234,17 +249,24 @@ export const generateRecommendations = (
       const singleAutoFare = mode.autoBaseFare + billableKm * mode.autoPerKm;
       const tripCost = Math.round(singleAutoFare / mode.autoOccupancy);
 
-      // CO2 = CNG used (kg) × 2.75 kg CO2/kg — full trip total for the shared auto
+      // CO2 = CNG used (kg) × 2.70 kg CO2/kg — full trip total for the shared auto
       const cngUsedKg = parseFloat((distance / mode.autoCngMileage).toFixed(3));
       const co2Emissions = parseFloat((cngUsedKg * CO2_KG_PER_KG_CNG).toFixed(3));
+      const co2EmissionsRange = [
+        parseFloat((cngUsedKg * 2.66).toFixed(3)),
+        parseFloat((cngUsedKg * 2.75).toFixed(3))
+      ];
 
       return {
         ...mode,
         travelTime,
         tripCost,
         co2Emissions,
+        co2EmissionsRange, // [min, max] kg CO₂ for display
         fuelUsedLitres: 0,
         cngUsedKg, // CNG burned by the auto over the trip
+        cngCo2KgPerKg: CO2_KG_PER_KG_CNG, // kg CO2 per kg of CNG (midpoint of range)
+        cngCo2Range: [2.66, 2.75],        // [min, max] kg CO2 per kg of CNG
         autoSingleFare: Math.round(singleAutoFare), // full metered fare before the pooling split
         convenienceSummary: 'Shared auto ride'
       };

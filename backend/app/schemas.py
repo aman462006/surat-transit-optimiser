@@ -40,6 +40,10 @@ class TrafficRequest(BaseModel):
     departureTime: DepartureWindow = "now"
     baseDurationMins: float = Field(..., gt=0, description="Base OSRM duration in minutes")
     distanceKm: Optional[float] = Field(default=None, gt=0, description="OSRM driving distance in km")
+    # Optional intermediate points (along a specific corridor) so TomTom routes
+    # THROUGH that corridor instead of always its own fastest path — lets each
+    # road-route alternative get its own traffic-aware ETA.
+    waypoints: Optional[list[Coord]] = Field(default=None, max_length=8)
 
 
 class FareRequest(BaseModel):
