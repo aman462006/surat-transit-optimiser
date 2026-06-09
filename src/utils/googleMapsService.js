@@ -155,10 +155,12 @@ export const simulateSuratTraffic = (source, dest, departureTime, baseDurationMi
   };
 };
 
-// Backend base URL (FastAPI). Override with VITE_BACKEND_URL when deployed.
+// Traffic API base URL. Defaults to '' → same-origin `/api/traffic`, which on
+// Vercel is the serverless function in /api/traffic.js (no separate backend host
+// needed). Set VITE_BACKEND_URL to point at a different backend for local dev
+// (e.g. http://localhost:8000 for the FastAPI server).
 const BACKEND_URL =
-  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BACKEND_URL) ||
-  'http://localhost:8000';
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BACKEND_URL) || '';
 
 /**
  * Resolve a traffic-aware ETA for a trip.
