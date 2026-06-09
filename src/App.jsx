@@ -238,12 +238,14 @@ const MeasuredErrorBadge = ({ error }) => {
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        {measured ? `${error.absLabel} (${error.pctLabel})` : '⚠ live n/a'}
+        {measured
+          ? `${error.label ? `${error.label} ` : ''}${error.absLabel} (${error.pctLabel})`
+          : '⚠ live n/a'}
       </button>
       {open && (
         <span className="error-popover" role="tooltip">
           {measured && (
-            <strong className="error-popover-title">Measured error: {error.signedLabel}</strong>
+            <strong className="error-popover-title">{error.title || 'Measured error'}: {error.signedLabel}</strong>
           )}
           <span className="error-popover-reason">{error.reason}</span>
           {error.mitigation && (
@@ -402,16 +404,21 @@ function App() {
       out.eta = {
         measured: true,
         diff,
+        // Label makes clear this % is the OFFLINE FALLBACK model's deviation, not
+        // an error in the live ETA shown (which IS TomTom — the ground truth).
+        label: 'offline model',
+        title: 'Offline fallback error vs live TomTom',
         signedLabel: `${diff >= 0 ? '+' : '−'}${Math.abs(diff)} min`,
         absLabel: `±${Math.abs(diff)} min`,
         pctLabel: `${pct.toFixed(0)}%`,
         severity: pct < 10 ? 'ok' : pct < 25 ? 'warn' : 'bad',
         reason:
-          `Our offline calibrated model predicts ${model} min; TomTom live traffic measures ${live} min. ` +
-          `The gap is the model's error — it shapes OSRM free-flow time with an hour-by-hour Surat ` +
-          `congestion curve and Tapi-bridge queueing instead of reading live road sensors.`,
+          `The ETA shown is live TomTom traffic (${live} min) — that's the reference, not the error. ` +
+          `This % is how far our OFFLINE fallback model would be: it predicts ${model} min by shaping ` +
+          `OSRM free-flow time with an hour-by-hour Surat congestion curve and Tapi-bridge queueing ` +
+          `instead of reading live road sensors. It only matters if TomTom is unavailable.`,
         mitigation:
-          'Reducible by re-fitting the hourly congestion curve to logged TomTom samples for this corridor.'
+          'Shrinks over time — each live TomTom sample re-fits the fallback’s congestion calibration.'
       };
     } else if (!isLive) {
       const cal = d.calibration;
@@ -435,14 +442,17 @@ function App() {
       out.distance = {
         measured: true,
         diff,
+        // Two routers disagreeing slightly — not an error in the shown distance.
+        label: 'OSRM vs TomTom',
+        title: 'OSRM vs TomTom routing difference',
         signedLabel: `${diff >= 0 ? '+' : '−'}${Math.abs(diff).toFixed(2)} km`,
         absLabel: `±${Math.abs(diff).toFixed(2)} km`,
         pctLabel: `${pct.toFixed(0)}%`,
         severity: pct < 5 ? 'ok' : pct < 15 ? 'warn' : 'bad',
         reason:
           `The map distance (${roadDistance} km) is OSRM road geometry; TomTom's router measures ` +
-          `${provider} km for the same trip. The difference is because the two routing engines pick ` +
-          `slightly different roads and turns.`,
+          `${provider} km for the same trip. The difference is just the two routing engines picking ` +
+          `slightly different roads and turns — neither is "wrong".`,
         mitigation:
           'Reducible by feeding TomTom’s route distance into the fuel / cost / CO₂ calculations when it is available.'
       };
