@@ -44,6 +44,7 @@ const RouteVariantCards = ({ routeOptions, selectedVariant, onSelectVariant, isL
   // When the air barely differs between corridors, the 50/50 time+air score is
   // dominated by travel time, so Balanced lands on the same route as Fastest.
   // Surface exactly why, so identical cards don't read as a bug.
+  const allSame = cleanestIdx === fastestIdx && balancedIdx === fastestIdx;
   const balancedMatchesFastest = balancedIdx === fastestIdx;
   const fastestConc = options[fastestIdx]?.ambient?.avgPm25;
   const cleanestConc = options[cleanestIdx]?.ambient?.avgPm25;
@@ -108,7 +109,14 @@ const RouteVariantCards = ({ routeOptions, selectedVariant, onSelectVariant, isL
         })}
       </div>
 
-      {balancedMatchesFastest ? (
+      {allSame ? (
+        <p className="variant-note">
+          ℹ️ <strong>All three options are the same route here.</strong> Any cleaner-air detour would
+          add noticeable distance for {airGap != null ? `only ~${airGap} µg/m³` : 'a negligible'} less PM2.5,
+          so it isn't worth it — the single best route is shown. On longer trips through more varied air,
+          the three options will differ.
+        </p>
+      ) : balancedMatchesFastest ? (
         <p className="variant-note">
           ℹ️ <strong>Balanced is showing the same route as Fastest.</strong> That's because the
           air barely differs between corridors{airGap != null ? ` — the cleanest is only ~${airGap} µg/m³ lower in PM2.5` : ''}.
