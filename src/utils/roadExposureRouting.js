@@ -46,6 +46,17 @@ const sampleWaypoints = (coordinates, n = 3) => {
   return out;
 };
 
+/** Great-circle distance (km) between two {lat,lng} points. */
+const haversineKm = (a, b) => {
+  const R = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+};
+
 // Below this relative spread in average PM2.5 concentration, the alternatives
 // pass through effectively the same air — the UI should say differences are
 // minimal rather than imply a meaningful "cleaner" choice exists.
@@ -64,60 +75,79 @@ const argmin = (items, score) => {
   return bestIdx;
 };
 
+// "Worth it" guardrails — a cleaner-air detour only makes sense if the air is
+// meaningfully cleaner for the extra distance it costs.
+const SHORT_TRIP_KM = 1;       // trips under this: don't bother diverging at all
+const WORTH_AIR_MIN_UG = 1;    // cleaner route must beat the fastest by MORE than this PM2.5…
+const WORTH_DIST_MAX_KM = 1;   // …once it adds this much extra distance, else it's not worth it
+
 /**
  * Pure ranking over already-scored route options. Separated from the async
  * fetching so it can be unit-tested without hitting the network.
  *
  * "Cleanest" = the route through the lowest average PM2.5 air (concentration),
- * regardless of how long it takes — so it can differ from the fastest even when
- * a longer detour breathes only slightly cleaner air. "Balanced" weighs time and
- * that concentration half-and-half.
+ * regardless of how long it takes. "Balanced" weighs time and that concentration
+ * half-and-half. BUT a cleaner route is only offered when it's actually worth it:
+ *   • Trips shorter than ~1 km collapse all three to the single fastest route.
+ *   • If the cleanest route is barely cleaner (≤1 µg/m³ PM2.5) yet ≥1 km longer
+ *     than the fastest, the detour isn't worth it — all three collapse to fastest.
  *
  * @param {Array<{durationMins:number, distanceKm:number, concentration:number|null}>} options
+ * @param {number} [tripDistanceKm] straight-line source→dest distance (for the short-trip rule)
  * @returns {{ fastestIdx:number, cleanestIdx:number, balancedIdx:number, negligible:boolean }}
  */
-export const rankRouteOptions = (options) => {
+export const rankRouteOptions = (options, tripDistanceKm = null) => {
   // Fastest is always well-defined.
   const fastestIdx = argmin(options, (o) => o.durationMins);
+  const fastest = options[fastestIdx];
 
-  // Cleanest / Balanced rank by average PM2.5 concentration; if no candidate has
-  // air data, fall back to time so the UI still works (and mark spread negligible).
   const measured = options.filter((o) => o.concentration != null);
   const haveExposure = measured.length > 0;
 
-  // Cleanest = lowest average PM2.5. When the air ties (e.g. the uniform CAMS
-  // model fallback), tie-break to the FASTER route — there's no point labelling
-  // a slower route "cleanest" when it breathes the exact same air.
-  let cleanestIdx = fastestIdx;
+  // Cleanest candidate = lowest average PM2.5. When the air ties (e.g. the uniform
+  // CAMS model fallback), tie-break to the FASTER route.
+  let cleanestCand = fastestIdx;
   if (haveExposure) {
     const minConc = Math.min(...measured.map((o) => o.concentration));
-    cleanestIdx = argmin(options, (o) =>
+    cleanestCand = argmin(options, (o) =>
       o.concentration != null && o.concentration <= minConc + 1e-6 ? o.durationMins : Infinity
     );
   }
+
+  // ---- Worth-it gate: decide whether a cleaner route should be offered at all ----
+  const tripLenKm = tripDistanceKm != null ? tripDistanceKm : fastest.distanceKm;
+  const shortTrip = tripLenKm < SHORT_TRIP_KM;
+
+  const airGain = (haveExposure && fastest.concentration != null && options[cleanestCand].concentration != null)
+    ? fastest.concentration - options[cleanestCand].concentration   // how much cleaner (µg/m³)
+    : 0;
+  const distCost = options[cleanestCand].distanceKm - fastest.distanceKm; // extra km vs fastest
+  const notWorth = airGain <= WORTH_AIR_MIN_UG && distCost >= WORTH_DIST_MAX_KM;
+
+  // Collapse all three onto the fastest route when diverging isn't justified.
+  const collapse = !haveExposure || options.length < 2 || shortTrip || notWorth;
+
+  if (collapse) {
+    return { fastestIdx, cleanestIdx: fastestIdx, balancedIdx: fastestIdx, negligible: true };
+  }
+
+  const cleanestIdx = cleanestCand;
 
   // Balanced: half weight on time, half on average PM2.5 (both min–max normalised).
   // Distance is intentionally excluded — longer routes already cost more time.
   const durations = options.map((o) => o.durationMins);
   const concs = measured.map((o) => o.concentration);
   const tMin = Math.min(...durations), tMax = Math.max(...durations);
-  const cMin = haveExposure ? Math.min(...concs) : 0;
-  const cMax = haveExposure ? Math.max(...concs) : 0;
+  const cMin = Math.min(...concs), cMax = Math.max(...concs);
 
   const balancedIdx = argmin(options, (o) => {
     const tN = normalise(o.durationMins, tMin, tMax);
-    if (!haveExposure) return tN; // no air data → fall back to time only
-    // A candidate missing air data is treated as worst-case (1) on that axis.
     const cN = o.concentration == null ? 1 : normalise(o.concentration, cMin, cMax);
     return 0.5 * tN + 0.5 * cN;
   });
 
   // Flag near-identical air so the UI doesn't oversell a "cleaner" choice.
-  const negligible =
-    !haveExposure ||
-    options.length < 2 ||
-    cMax <= 0 ||
-    (cMax - cMin) / cMax < NEGLIGIBLE_CONC_SPREAD;
+  const negligible = cMax <= 0 || (cMax - cMin) / cMax < NEGLIGIBLE_CONC_SPREAD;
 
   return { fastestIdx, cleanestIdx, balancedIdx, negligible };
 };
@@ -173,5 +203,8 @@ export const computeRoadRouteOptions = async (source, destination, departureTime
     };
   });
 
-  return { options, ...rankRouteOptions(options) };
+  // Straight-line trip length, for the short-trip "don't bother diverging" rule.
+  const tripDistanceKm = haversineKm(source, destination);
+
+  return { options, ...rankRouteOptions(options, tripDistanceKm) };
 };
