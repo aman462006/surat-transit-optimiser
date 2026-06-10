@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import MapView from './components/MapView';
 import { generateRecommendations } from './utils/recommendationEngine';
 import { getTrafficEta } from './utils/googleMapsService';
@@ -325,6 +325,52 @@ function App() {
 
   // Startup About/landing page — gates the planner until the user proceeds.
   const [hasEntered, setHasEntered] = useState(false);
+
+  // Resizable sidebar. Width persists across sessions; clamped so the map keeps
+  // breathing room. Stored as a CSS var on .app-layout so the mobile (stacked)
+  // layout can still override it with width:100%.
+  const SIDEBAR_DEFAULT = 440;
+  const SIDEBAR_MIN = 320;
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(localStorage.getItem('sidebarWidth'));
+    return saved >= SIDEBAR_MIN ? saved : SIDEBAR_DEFAULT;
+  });
+  const isResizingRef = useRef(false);
+
+  useEffect(() => {
+    localStorage.setItem('sidebarWidth', String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  const clampSidebar = (px) => {
+    const max = Math.min(760, window.innerWidth - 360); // keep ≥360px for the map
+    return Math.round(Math.min(Math.max(px, SIDEBAR_MIN), Math.max(SIDEBAR_MIN, max)));
+  };
+
+  const startSidebarResize = useCallback((e) => {
+    isResizingRef.current = true;
+    e.preventDefault();
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!isResizingRef.current) return;
+      setSidebarWidth(clampSidebar(e.clientX));
+    };
+    const onUp = () => {
+      if (!isResizingRef.current) return;
+      isResizingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, []);
 
   // Private car baseline: fuel chemistry for CO₂-per-unit and default mileage.
   // Chosen via a popup when Private Car is selected; editable afterwards.
@@ -864,7 +910,7 @@ function App() {
   }
 
   return (
-    <div className="app-layout">
+    <div className="app-layout" style={{ '--sidebar-width': `${sidebarWidth}px` }}>
       {/* Sidebar Dashboard */}
       <aside className="dashboard-sidebar">
         <header className="dashboard-header">
@@ -1315,6 +1361,19 @@ function App() {
           <p>Built for Surat urban mobility comparison</p>
         </footer>
       </aside>
+
+      {/* Draggable divider to resize the sidebar (double-click resets) */}
+      <div
+        className="sidebar-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        title="Drag to resize · double-click to reset"
+        onPointerDown={startSidebarResize}
+        onDoubleClick={() => setSidebarWidth(SIDEBAR_DEFAULT)}
+      >
+        <span className="sidebar-resizer-grip" />
+      </div>
 
       {/* Main Map Area Container */}
       <main className="map-viewport-container">

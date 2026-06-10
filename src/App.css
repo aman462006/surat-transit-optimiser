@@ -63,7 +63,8 @@ body, html, #root {
 
 /* Glassmorphic Dark Dashboard Sidebar */
 .dashboard-sidebar {
-  width: 440px;
+  width: var(--sidebar-width, 440px);
+  flex-shrink: 0;
   height: 100%;
   background: var(--bg-sidebar);
   backdrop-filter: blur(20px);
@@ -923,8 +924,38 @@ body, html, #root {
 /* Main Map Area Container */
 .map-viewport-container {
   flex: 1;
+  min-width: 0;
   height: 100%;
   position: relative;
+}
+
+/* Draggable divider between the sidebar and the map */
+.sidebar-resizer {
+  flex: 0 0 6px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: -3px;
+  margin-right: -3px;
+  touch-action: none;
+}
+
+.sidebar-resizer-grip {
+  width: 4px;
+  height: 48px;
+  border-radius: 999px;
+  background: var(--border-light, rgba(255, 255, 255, 0.15));
+  transition: background 0.15s ease, height 0.15s ease;
+}
+
+.sidebar-resizer:hover .sidebar-resizer-grip,
+.sidebar-resizer:active .sidebar-resizer-grip {
+  background: #6366f1;
+  height: 72px;
 }
 
 .map-view-wrapper {
@@ -1096,12 +1127,17 @@ body, html, #root {
   .app-layout {
     flex-direction: column-reverse;
   }
-  
+
+  /* Stacked layout: full-width sidebar, no horizontal resizer. */
   .dashboard-sidebar {
-    width: 100%;
+    width: 100% !important;
     height: 55%;
     border-right: none;
     border-top: 1px solid var(--border-light);
+  }
+
+  .sidebar-resizer {
+    display: none;
   }
   
   .map-viewport-container {
