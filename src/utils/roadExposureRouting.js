@@ -26,7 +26,8 @@
  * tiny so the UI can say the "cleaner" route is only marginally cleaner.
  */
 
-import { generateBfsRoadRoutes } from './bfsRouteGenerator.js';
+import { generateBfsRoadRoutes, routeSignature } from './bfsRouteGenerator.js';
+import { findFastestRoadRoute } from './roadAStar.js';
 import { fetchRouteExposure } from './airQualityService.js';
 import { getTrafficEta } from './googleMapsService.js';
 
@@ -94,11 +95,16 @@ const WORTH_DIST_MAX_KM = 1;   // …once it adds this much extra distance, else
  *
  * @param {Array<{durationMins:number, distanceKm:number, concentration:number|null}>} options
  * @param {number} [tripDistanceKm] straight-line source→dest distance (for the short-trip rule)
+ * @param {number|null} [fastestIdxOverride] index of the A*-solved fastest corridor;
+ *        when supplied it is used verbatim instead of an argmin over the pool, so the
+ *        "Fastest" choice is the A* search result. Cleanest/Balanced are unaffected.
  * @returns {{ fastestIdx:number, cleanestIdx:number, balancedIdx:number, negligible:boolean }}
  */
-export const rankRouteOptions = (options, tripDistanceKm = null) => {
-  // Fastest is always well-defined.
-  const fastestIdx = argmin(options, (o) => o.durationMins);
+export const rankRouteOptions = (options, tripDistanceKm = null, fastestIdxOverride = null) => {
+  // Fastest comes from the A* search when provided, else a plain argmin fallback.
+  const fastestIdx = (fastestIdxOverride != null && fastestIdxOverride >= 0 && fastestIdxOverride < options.length)
+    ? fastestIdxOverride
+    : argmin(options, (o) => o.durationMins);
   const fastest = options[fastestIdx];
 
   const measured = options.filter((o) => o.concentration != null);
@@ -165,21 +171,42 @@ export const rankRouteOptions = (options, tripDistanceKm = null) => {
  * }|null>} null if no road geometry could be resolved.
  */
 export const computeRoadRouteOptions = async (source, destination, departureTime = 'now') => {
-  const alternatives = await generateBfsRoadRoutes(source, destination);
+  // BFS still enumerates the corridor pool (for Cleanest/Balanced); in parallel,
+  // A* solves for the single fastest corridor over the same layered road graph.
+  const [alternatives, astarFastest] = await Promise.all([
+    generateBfsRoadRoutes(source, destination),
+    findFastestRoadRoute(source, destination).catch(() => null)
+  ]);
   if (!alternatives || alternatives.length === 0) return null;
+
+  // Fold the A*-chosen fastest route into the pool so it's scored like any other
+  // corridor; dedupe against BFS by geometry and remember its index. If A* failed
+  // or returned a dud, fastestIdxOverride stays null and ranking falls back to argmin.
+  let pool = alternatives;
+  let fastestIdxOverride = null;
+  if (astarFastest && astarFastest.coordinates && astarFastest.coordinates.length >= 2) {
+    const sig = routeSignature(astarFastest);
+    const existing = alternatives.findIndex((r) => routeSignature(r) === sig);
+    if (existing >= 0) {
+      fastestIdxOverride = existing;
+    } else {
+      pool = [astarFastest, ...alternatives];
+      fastestIdxOverride = 0;
+    }
+  }
 
   // Per corridor, in parallel: (a) score its ambient air quality, and (b) get
   // its OWN traffic-aware ETA by routing TomTom through the corridor's waypoints
   // (falls back to OSRM free-flow time if the traffic service is unreachable).
   const [exposures, traffics] = await Promise.all([
-    Promise.all(alternatives.map((alt) => fetchRouteExposure(alt.coordinates).catch(() => null))),
-    Promise.all(alternatives.map((alt) =>
+    Promise.all(pool.map((alt) => fetchRouteExposure(alt.coordinates).catch(() => null))),
+    Promise.all(pool.map((alt) =>
       getTrafficEta(source, destination, departureTime, alt.durationMins, alt.distanceKm, sampleWaypoints(alt.coordinates))
         .catch(() => null)
     ))
   ]);
 
-  const options = alternatives.map((alt, i) => {
+  const options = pool.map((alt, i) => {
     const ambient = exposures[i] && exposures[i].ok ? exposures[i] : null;
     // Traffic-aware ETA when available, else OSRM free-flow — keeps these cards
     // consistent with the headline "Calibrated Urban ETA".
@@ -206,5 +233,5 @@ export const computeRoadRouteOptions = async (source, destination, departureTime
   // Straight-line trip length, for the short-trip "don't bother diverging" rule.
   const tripDistanceKm = haversineKm(source, destination);
 
-  return { options, ...rankRouteOptions(options, tripDistanceKm) };
+  return { options, ...rankRouteOptions(options, tripDistanceKm, fastestIdxOverride) };
 };

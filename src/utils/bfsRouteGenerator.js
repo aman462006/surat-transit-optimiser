@@ -106,7 +106,7 @@ const runThrottled = async (thunks, batchSize) => {
 };
 
 /** Stable dedupe key: a route is "the same" if it has near-identical length and midpoint. */
-const routeSignature = (route) => {
+export const routeSignature = (route) => {
   const mid = route.coordinates[Math.floor(route.coordinates.length / 2)] || [0, 0];
   return `${route.distanceKm.toFixed(1)}|${mid[0].toFixed(3)},${mid[1].toFixed(3)}`;
 };
