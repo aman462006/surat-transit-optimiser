@@ -40,8 +40,13 @@ const endpointIcon = (variant) =>
     popupAnchor: [0, -32],
   });
 
-const stationIcon = () =>
-  L.divIcon({ className: 'map-station', html: '<span class="station-ring"></span>', iconSize: [14, 14], iconAnchor: [7, 7] });
+const stationIcon = (color = '#059669') =>
+  L.divIcon({
+    className: 'map-station',
+    html: `<span class="station-ring" style="--st:${color}"></span>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+  });
 
 const transferIcon = () =>
   L.divIcon({
@@ -231,19 +236,26 @@ const MapView = ({
 
         <TileLayer key={`${baseLayer}-${theme}`} url={tile.url} attribution={tile.attribution} subdomains={tile.subdomains} maxZoom={19} detectRetina />
 
-        {/* BRTS network corridors */}
+        {/* BRTS network corridors — every route drawn in its own colour so the
+            full Sitilink network reads clearly (the core purpose of the app). */}
         {showNetwork && Object.values(BRTS_ROUTES).map((route) => {
           const points = route.stations.map((id) => [BRTS_STATIONS[id].lat, BRTS_STATIONS[id].lng]);
           return (
-            <Polyline key={route.id} positions={points} pathOptions={{ color: C.brts, weight: 2.5, opacity: 0.28, dashArray: '3, 8', lineCap: 'round' }} />
+            <Polyline
+              key={route.id}
+              positions={points}
+              pathOptions={{ color: route.color || C.brts, weight: 3.5, opacity: 0.6, lineCap: 'round', lineJoin: 'round' }}
+            >
+              <Tooltip sticky><div className="route-tip"><strong>{route.shortName}</strong> · {route.longName || route.corridorName}</div></Tooltip>
+            </Polyline>
           );
         })}
 
-        {/* Stations */}
+        {/* Stations — all 85 rendered, coloured by their line */}
         {showNetwork && Object.values(BRTS_STATIONS).map((station) => {
           const connected = Object.values(BRTS_ROUTES).filter((r) => r.stations.includes(station.id));
           return (
-            <Marker key={station.id} position={[station.lat, station.lng]} icon={stationIcon()}>
+            <Marker key={station.id} position={[station.lat, station.lng]} icon={stationIcon(connected[0]?.color || C.brts)}>
               <Popup closeButton>
                 <div className="map-popup">
                   <div className="popup-head"><Icon name="bus" size={15} /><strong>{station.name}</strong></div>
