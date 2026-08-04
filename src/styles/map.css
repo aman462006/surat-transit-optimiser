@@ -49,12 +49,14 @@
 
 /* ---- Station + transfer ---- */
 .map-station .station-ring {
-  display: block; width: 12px; height: 12px;
+  display: block; width: 14px; height: 14px;
   border-radius: 50%;
-  background: var(--bg-elevated);
-  border: 3px solid var(--mode-brts);
-  box-shadow: var(--shadow-sm);
+  background: #fff;
+  border: 3.5px solid var(--st, var(--mode-brts));
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9), var(--shadow-md);
+  transition: transform var(--t-fast);
 }
+.map-station:hover .station-ring { transform: scale(1.25); }
 .map-transfer { position: relative; }
 .map-transfer .transfer-core {
   position: absolute; inset: 4px;
