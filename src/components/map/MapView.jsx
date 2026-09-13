@@ -28,6 +28,47 @@ const TILES = {
     attribution: 'Tiles &copy; Esri, Maxar, Earthstar Geographics',
     subdomains: '',
   },
+  // Keyless, highly reliable fallback used automatically if the primary tile
+  // provider starts erroring (e.g. transient CARTO/Esri rate-limiting), so the
+  // map never renders a provider "API key required" / error tile.
+  osm: {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    subdomains: 'abc',
+  },
+};
+
+/* ---- Resilient tile layer: falls back to OSM if the primary provider errors ---- */
+const ResilientTileLayer = ({ tile, tileKey }) => {
+  const [useFallback, setUseFallback] = useState(false);
+  const errorCount = useRef(0);
+
+  // Reset whenever the requested base layer / theme changes.
+  useEffect(() => { errorCount.current = 0; setUseFallback(false); }, [tileKey]);
+
+  const active = useFallback ? TILES.osm : tile;
+
+  return (
+    <TileLayer
+      key={`${tileKey}-${useFallback ? 'osm' : 'primary'}`}
+      url={active.url}
+      attribution={active.attribution}
+      subdomains={active.subdomains}
+      maxZoom={19}
+      detectRetina={!useFallback}
+      eventHandlers={{
+        tileerror: () => {
+          // A handful of tile failures means the provider is unhealthy — switch
+          // once to OSM. A single stray error won't trip this.
+          errorCount.current += 1;
+          if (errorCount.current >= 6 && !useFallback) setUseFallback(true);
+        },
+        // A successful load after some errors clears the counter so brief blips
+        // don't accumulate toward a needless fallback.
+        tileload: () => { if (!useFallback && errorCount.current > 0) errorCount.current -= 1; },
+      }}
+    />
+  );
 };
 
 /* ---- Custom markers ---- */
@@ -234,7 +275,7 @@ const MapView = ({
         <MapController source={source} destination={destination} onApi={handleApi} onLocating={handleLocating} />
         <MapEvents onSelectCoords={onSelectCoords} />
 
-        <TileLayer key={`${baseLayer}-${theme}`} url={tile.url} attribution={tile.attribution} subdomains={tile.subdomains} maxZoom={19} detectRetina />
+        <ResilientTileLayer tile={tile} tileKey={`${baseLayer}-${theme}`} />
 
         {/* BRTS network corridors — every route drawn in its own colour so the
             full Sitilink network reads clearly (the core purpose of the app). */}
