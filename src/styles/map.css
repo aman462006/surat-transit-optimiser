@@ -11,6 +11,11 @@
 }
 .map-view.is-fullscreen { border-radius: 0; }
 .map-canvas { width: 100%; height: 100%; background: var(--bg-sunken); outline: none; }
+/* Dark mode uses the keyless OSM tiles darkened via a filter on the tile pane
+   only — route polylines (overlay pane) and markers (marker pane) are untouched. */
+.map-canvas-dark .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9);
+}
 .leaflet-container { font-family: var(--font-sans); background: var(--bg-sunken); }
 .leaflet-control-attribution {
   background: var(--surface-nav) !important;
