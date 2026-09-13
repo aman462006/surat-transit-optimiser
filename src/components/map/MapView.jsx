@@ -12,28 +12,32 @@ const SURAT_CENTER = [21.1702, 72.8311];
 const DEFAULT_ZOOM = 13;
 
 /* ---- Tile definitions (theme + base-layer aware) ---- */
+// Keyless OpenStreetMap standard tiles. CARTO's free basemaps now require an
+// API key and otherwise serve an "API KEY REQUIRED" watermark tile (returned
+// as a normal 200 PNG, so it can't be caught as a load error) — so we don't use
+// them. Dark mode reuses the same OSM tiles, darkened via a CSS filter on the
+// Leaflet tile pane (routes/markers live in other panes and stay full-colour).
+const OSM_ATTRIB = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const TILES = {
   light: {
-    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    subdomains: 'abcd',
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: OSM_ATTRIB,
+    subdomains: 'abc',
   },
   dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    subdomains: 'abcd',
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: OSM_ATTRIB,
+    subdomains: 'abc',
   },
   satellite: {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Tiles &copy; Esri, Maxar, Earthstar Geographics',
     subdomains: '',
   },
-  // Keyless, highly reliable fallback used automatically if the primary tile
-  // provider starts erroring (e.g. transient CARTO/Esri rate-limiting), so the
-  // map never renders a provider "API key required" / error tile.
-  osm: {
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  // Secondary keyless host, used automatically if the primary starts erroring.
+  fallback: {
+    url: 'https://{s}.tile.openstreetmap.de/{z}/{x}/{y}.png',
+    attribution: OSM_ATTRIB,
     subdomains: 'abc',
   },
 };
@@ -46,16 +50,15 @@ const ResilientTileLayer = ({ tile, tileKey }) => {
   // Reset whenever the requested base layer / theme changes.
   useEffect(() => { errorCount.current = 0; setUseFallback(false); }, [tileKey]);
 
-  const active = useFallback ? TILES.osm : tile;
+  const active = useFallback ? TILES.fallback : tile;
 
   return (
     <TileLayer
-      key={`${tileKey}-${useFallback ? 'osm' : 'primary'}`}
+      key={`${tileKey}-${useFallback ? 'fallback' : 'primary'}`}
       url={active.url}
       attribution={active.attribution}
       subdomains={active.subdomains}
       maxZoom={19}
-      detectRetina={!useFallback}
       eventHandlers={{
         tileerror: () => {
           // A handful of tile failures means the provider is unhealthy — switch
@@ -269,7 +272,7 @@ const MapView = ({
         maxBounds={[[21.03, 72.65], [21.38, 72.98]]}
         maxBoundsViscosity={1.0}
         zoomControl={false}
-        className="map-canvas"
+        className={`map-canvas${baseLayer === 'map' && dark ? ' map-canvas-dark' : ''}`}
         style={{ width: '100%', height: '100%' }}
       >
         <MapController source={source} destination={destination} onApi={handleApi} onLocating={handleLocating} />
