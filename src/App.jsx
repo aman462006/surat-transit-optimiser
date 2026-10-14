@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { generateRecommendations } from './utils/recommendationEngine';
 import { getTrafficEta } from './utils/googleMapsService';
 import { searchPlaces, reverseGeocode, getUserCurrentLocation } from './utils/geocodingService';
@@ -69,6 +69,9 @@ function App() {
   const [isLoadingDestSearch, setIsLoadingDestSearch] = useState(false);
   const [isSourceFocused, setIsSourceFocused] = useState(false);
   const [isDestFocused, setIsDestFocused] = useState(false);
+  // Preset/suggestion picks carry an explicit label; reverse-geocode must not
+  // overwrite it (and must not trigger a fresh text search for the same point).
+  const explicitLabelRef = useRef({ source: null, destination: null });
   const [locationError, setLocationError] = useState(null);
 
   // ---- Routing (OSRM) ----
@@ -251,6 +254,7 @@ function App() {
   // ---- Reverse geocode ----
   useEffect(() => {
     if (!source) { setSourceText(''); return; }
+    if (explicitLabelRef.current.source) { explicitLabelRef.current.source = null; return; }
     reverseGeocode(source.lat, source.lng)
       .then(setSourceText)
       .catch(() => setSourceText(`${(source.lat ?? 0).toFixed(5)}, ${(source.lng ?? 0).toFixed(5)}`));
@@ -258,6 +262,7 @@ function App() {
 
   useEffect(() => {
     if (!destination) { setDestText(''); return; }
+    if (explicitLabelRef.current.destination) { explicitLabelRef.current.destination = null; return; }
     reverseGeocode(destination.lat, destination.lng)
       .then(setDestText)
       .catch(() => setDestText(`${(destination.lat ?? 0).toFixed(5)}, ${(destination.lng ?? 0).toFixed(5)}`));
@@ -350,14 +355,27 @@ function App() {
   // ---- Handlers ----
   const handleSelectSuggestion = (place, type) => {
     const coords = { lat: place.lat, lng: place.lng };
-    if (type === 'source') { setSource(coords); setSourceText(place.displayName); setSourceSuggestions([]); }
-    else { setDestination(coords); setDestText(place.displayName); setDestSuggestions([]); }
+    explicitLabelRef.current[type] = place.displayName;
+    if (type === 'source') {
+      setSource(coords); setSourceText(place.displayName); setSourceSuggestions([]); setIsSourceFocused(false);
+    } else {
+      setDestination(coords); setDestText(place.displayName); setDestSuggestions([]); setIsDestFocused(false);
+    }
   };
 
   const handleQuickPick = (place) => {
+    // Presets carry exact coordinates — no fuzzy search, no re-geocode, no
+    // suggestion list may survive the click.
     const coords = { lat: place.lat, lng: place.lng };
-    if (!source) { setSource(coords); setSourceText(place.displayName); }
-    else { setDestination(coords); setDestText(place.displayName); }
+    setSourceSuggestions([]); setDestSuggestions([]);
+    setIsSourceFocused(false); setIsDestFocused(false);
+    if (!source) {
+      explicitLabelRef.current.source = place.displayName;
+      setSource(coords); setSourceText(place.displayName);
+    } else {
+      explicitLabelRef.current.destination = place.displayName;
+      setDestination(coords); setDestText(place.displayName);
+    }
   };
 
   const handleUseCurrentLocation = async (type) => {

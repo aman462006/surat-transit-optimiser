@@ -105,7 +105,13 @@ const computeDepartAt = (departureTime) => {
 const fetchTomTomTraffic = async (source, dest, departureTime, baseDurationMins, distanceKm, waypoints) => {
   const apiKey = (process.env.TOMTOM_API_KEY || '').trim();
   if (!apiKey) {
-    return simulateSuratTraffic(source, dest, departureTime, baseDurationMins, distanceKm);
+    // Surface WHY live traffic is unavailable so the cause is diagnosable from
+    // the API response instead of looking like a TomTom outage.
+    return {
+      ...simulateSuratTraffic(source, dest, departureTime, baseDurationMins, distanceKm),
+      keyConfigured: false,
+      reason: 'TOMTOM_API_KEY is not configured in this deployment — add it to the Vercel project environment variables to get live traffic ETAs.'
+    };
   }
 
   // "src:wp1:...:dest" — TomTom routes through the points in order, so a specific
