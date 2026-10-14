@@ -1,6 +1,6 @@
 # TransitOptima: Health-Aware Multimodal Trip Planning for Surat with Real-Time Pollution Exposure
 
-**Live demo:** [surat-transit-optimiser-3e9j.vercel.app](https://surat-transit-optimiser-3e9j.vercel.app/)
+**Live demo:** [surat-transit-optimiser-dwxm.vercel.app](https://surat-transit-optimiser-dwxm.vercel.app/)
 
 # Abstract
 
