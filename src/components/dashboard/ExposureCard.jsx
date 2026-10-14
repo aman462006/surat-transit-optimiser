@@ -107,7 +107,7 @@ const ExposureCard = ({ exposure, modeExposure, modeName, isLoading }) => {
       </div>
 
       <p className="exp-src-foot">
-        US-EPA AQI · {exposure.source === 'cpcb' ? 'CPCB live (data.gov.in)' : exposure.source === 'station' ? 'WAQI station' : 'Open-Meteo / CAMS'}
+        US-EPA AQI · {exposure.source === 'cpcb' ? 'CPCB live (OpenAQ)' : exposure.source === 'station' ? 'WAQI station' : 'Open-Meteo / CAMS'}
       </p>
     </div>
   );
