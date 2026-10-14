@@ -56,8 +56,18 @@ const POLLUTANT_KEY = {
 // NOTE: these are DATA anchors only — none of them are drawn on the map.
 const ANCHOR_CITIES = ['Surat', 'Navsari', 'Ankleshwar', 'Bharuch', 'Vadodara'];
 
+// 10-minute in-memory cache per city. The default data.gov.in key is a shared
+// sample key with strict rate limits; without caching, every route change
+// re-fetched all anchor cities and burned the quota, which is why live CPCB
+// data silently fell through to WAQI/CAMS during normal use.
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const cityCache = new Map();
+
 /** Fetches and parses CPCB stations for a single city. */
 const fetchCityStations = async (city) => {
+  const cached = cityCache.get(city);
+  if (cached && (Date.now() - cached.at) < CACHE_TTL_MS) return cached.data;
+
   const url =
     `https://api.data.gov.in/resource/${RESOURCE_ID}` +
     `?api-key=${DATAGOV_KEY}&format=json&limit=200&filters%5Bcity%5D=${encodeURIComponent(city)}`;
@@ -80,9 +90,13 @@ const fetchCityStations = async (city) => {
       const pk = POLLUTANT_KEY[r.pollutant_id];
       if (pk) byStation.get(r.station).pollutants[pk] = value;
     }
-    return Array.from(byStation.values());
+    const stations = Array.from(byStation.values());
+    if (stations.length > 0) cityCache.set(city, { at: Date.now(), data: stations });
+    return stations;
   } catch (err) {
     console.warn(`CPCB fetch failed for ${city}:`, err.message);
+    // Do NOT cache failures — a rate-limit blip shouldn't blank the air-quality
+    // layer for the next 10 minutes.
     return [];
   }
 };
