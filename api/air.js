@@ -21,7 +21,15 @@
  * layer never presents week-old numbers as live ground truth.
  */
 
-const OPENAQ_API_KEY = (process.env.OPENAQ_API_KEY || '').trim();
+// Tolerant lookup: an env var NAME copied or typed with an invisible trailing
+// space / non-breaking space looks identical in the Vercel dashboard but does
+// NOT match process.env.OPENAQ_API_KEY. Scan for it and trim before matching.
+const rawOpenAqKey = process.env.OPENAQ_API_KEY ?? (() => {
+  const found = Object.keys(process.env).find((k) => k.trim() === 'OPENAQ_API_KEY');
+  return found ? process.env[found] : undefined;
+})();
+const OPENAQ_API_KEY = (rawOpenAqKey || '').trim();
+
 const OPENAQ_BASE = 'https://api.openaq.org/v3';
 const DEFAULT_RADIUS_M = 25000; // OpenAQ caps radius at 25,000 m.
 const STALE_AFTER_HOURS = 48;   // CPCB feeds can lag ~24h; beyond 48h is not "live".
@@ -100,6 +108,14 @@ const stationsNear = async (lat, lng, radius) => {
   return stations;
 };
 
+// Names only, never values — safe to expose publicly for debugging. JSON.stringify
+// makes spaces / non-breaking spaces visible in the output.
+const relevantEnvVarNames = () =>
+  Object.keys(process.env)
+    .filter((k) => /AQ|AIR|TOMTOM|GOV|OPENAQ|KEY/i.test(k))
+    .map((k) => JSON.stringify(k))
+    .sort();
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -115,11 +131,15 @@ export default async function handler(req, res) {
   }
 
   if (!OPENAQ_API_KEY) {
-    // Config gap, not an outage — say so, so the UI never blames the network.
+    // Config gap, not an outage — and now self-diagnosing: envVarNames lists the
+    // related env var names this deployment can actually see (JSON-encoded, so
+    // hidden characters in a name are visible). An empty list means the variable
+    // does not exist on the project serving this domain at all.
     res.status(200).json({
       source: 'openaq',
       keyConfigured: false,
       reason: 'OPENAQ_API_KEY is not set on the server. Add it in Vercel → Settings → Environment Variables.',
+      envVarNames: relevantEnvVarNames(),
       stations: []
     });
     return;
