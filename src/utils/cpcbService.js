@@ -1,16 +1,28 @@
 /**
- * CPCB Real-Time Air-Quality Service (data.gov.in)
+ * Ground-sensor air-quality service (CPCB network).
  *
- * Fetches LIVE, in-city pollutant readings from India's Central Pollution
- * Control Board continuous monitoring stations, published on data.gov.in.
+ * PRIMARY: official CPCB / SMC station feeds via OpenAQ (api.openaq.org),
+ * fetched through our own /api/air serverless proxy. OpenAQ requires an
+ * X-API-Key header whose CORS preflight browsers cannot pass, and data.gov.in
+ * (the legacy direct source) rejects foreign IPs, so this layer is proxied.
  *
- * Unlike WAQI (whose nearest Surat station is ~50 km away in Ankleshwar), CPCB
- * has real stations inside Surat itself (e.g. Katargam, Science Center), so this
- * is the most accurate source available — actual ground sensors on the route.
+ * FALLBACK: the legacy data.gov.in resource API (shared sample key, heavily
+ * rate-limited, and unreachable from non-Indian IPs). Kept for the case where
+ * OpenAQ has no coverage near an anchor city but data.gov.in still answers.
  *
- * The API returns raw concentrations (µg/m³ for PM), not AQI, so we convert to
- * the US-EPA AQI scale to stay consistent with the rest of the app.
+ * Unlike WAQI (whose nearest Surat station is ~50 km away in Ankleshwar), the
+ * CPCB network has real stations inside Surat itself (e.g. Science Center,
+ * Katargam), so this remains the most accurate source available — actual
+ * ground sensors on the route.
+ *
+ * The APIs return raw concentrations (µg/m³ for PM), not AQI, so we convert
+ * to the US-EPA AQI scale to stay consistent with the rest of the app.
  */
+
+// Same-origin by default: on Vercel, /api/air is the serverless function in
+// api/air.js (mirrors how the traffic layer resolves /api/traffic).
+const BACKEND_URL =
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BACKEND_URL) || '';
 
 // data.gov.in API key — public sample key by default; override with your own
 // free key via VITE_DATAGOV_KEY (sample key is shared and rate-limited).
@@ -54,20 +66,53 @@ const POLLUTANT_KEY = {
 // primary source; the rest only matter via 1/distance² weighting (a station
 // 50 km away barely shifts a Surat result) or if Surat's monitors drop offline.
 // NOTE: these are DATA anchors only — none of them are drawn on the map.
-const ANCHOR_CITIES = ['Surat', 'Navsari', 'Ankleshwar', 'Bharuch', 'Vadodara'];
+// OpenAQ is searched by coordinates (it has no city filter), so each anchor
+// carries its centre point; the legacy data.gov path still queries by name.
+const ANCHOR_CITIES = [
+  { name: 'Surat', lat: 21.1702, lng: 72.8311 },
+  { name: 'Navsari', lat: 20.9493, lng: 72.9338 },
+  { name: 'Ankleshwar', lat: 21.6333, lng: 73.0083 },
+  { name: 'Bharuch', lat: 21.7050, lng: 72.9970 },
+  { name: 'Vadodara', lat: 22.3072, lng: 73.1812 }
+];
 
-// 10-minute in-memory cache per city. The default data.gov.in key is a shared
-// sample key with strict rate limits; without caching, every route change
-// re-fetched all anchor cities and burned the quota, which is why live CPCB
-// data silently fell through to WAQI/CAMS during normal use.
+// 10-minute in-memory cache per anchor city. Only successful, non-empty
+// results are cached — a blip must not blank the air-quality layer for the
+// next 10 minutes.
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const cityCache = new Map();
+const anchorCache = new Map();
 
-/** Fetches and parses CPCB stations for a single city. */
-const fetchCityStations = async (city) => {
-  const cached = cityCache.get(city);
-  if (cached && (Date.now() - cached.at) < CACHE_TTL_MS) return cached.data;
+/**
+ * PRIMARY path: ground stations near one anchor via the /api/air proxy.
+ * Returns [] when the proxy is unconfigured, unreachable, or has no fresh
+ * coverage — callers fall back to the legacy data.gov.in path.
+ */
+const fetchAnchorViaOpenAQ = async (anchor) => {
+  const cached = anchorCache.get(anchor.name);
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.data;
 
+  try {
+    const url = `${BACKEND_URL}/api/air?lat=${anchor.lat}&lng=${anchor.lng}&radius=25000`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`/api/air status ${res.status}`);
+    const json = await res.json();
+    const stations = Array.isArray(json.stations) ? json.stations : [];
+
+    // Tag each station with the anchor it came from (proxy leaves city null).
+    for (const s of stations) s.city = anchor.name;
+
+    if (stations.length > 0) anchorCache.set(anchor.name, { at: Date.now(), data: stations });
+    return stations;
+  } catch (err) {
+    console.warn(`OpenAQ proxy fetch failed for ${anchor.name}:`, err.message);
+    return []; // never cache failures
+  }
+};
+
+/**
+ * FALLBACK path: legacy data.gov.in resource API for one city (by name).
+ */
+const fetchAnchorViaDataGov = async (city) => {
   const url =
     `https://api.data.gov.in/resource/${RESOURCE_ID}` +
     `?api-key=${DATAGOV_KEY}&format=json&limit=200&filters%5Bcity%5D=${encodeURIComponent(city)}`;
@@ -90,23 +135,26 @@ const fetchCityStations = async (city) => {
       const pk = POLLUTANT_KEY[r.pollutant_id];
       if (pk) byStation.get(r.station).pollutants[pk] = value;
     }
-    const stations = Array.from(byStation.values());
-    if (stations.length > 0) cityCache.set(city, { at: Date.now(), data: stations });
-    return stations;
+    return Array.from(byStation.values());
   } catch (err) {
-    console.warn(`CPCB fetch failed for ${city}:`, err.message);
-    // Do NOT cache failures — a rate-limit blip shouldn't blank the air-quality
-    // layer for the next 10 minutes.
+    console.warn(`data.gov.in fetch failed for ${city}:`, err.message);
     return [];
   }
+};
+
+/** Fetches ground stations for one anchor: OpenAQ first, data.gov.in second. */
+const fetchAnchorStations = async (anchor) => {
+  const viaOpenAQ = await fetchAnchorViaOpenAQ(anchor);
+  if (viaOpenAQ.length > 0) return viaOpenAQ;
+  return fetchAnchorViaDataGov(anchor.name);
 };
 
 let _regionalStationsPromise = null;
 
 /**
- * Fetches live CPCB stations across Surat + nearby Gujarat cities (parallel),
+ * Fetches live ground stations across Surat + nearby Gujarat cities (parallel),
  * grouped into { station, city, lat, lng, lastUpdate, pollutants:{ pm25, ... } }.
- * Cached for the session (CPCB data refreshes hourly).
+ * Cached for the session (the monitor network refreshes hourly).
  *
  * @returns {Promise<Array>} Station list (empty array on failure).
  */
@@ -114,7 +162,7 @@ export const fetchRegionalStations = async () => {
   if (_regionalStationsPromise) return _regionalStationsPromise;
 
   _regionalStationsPromise = (async () => {
-    const lists = await Promise.all(ANCHOR_CITIES.map(fetchCityStations));
+    const lists = await Promise.all(ANCHOR_CITIES.map(fetchAnchorStations));
     const merged = lists.flat();
     // De-dupe by station name (a city occasionally appears in two pulls).
     const seen = new Map();
