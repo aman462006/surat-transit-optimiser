@@ -58,7 +58,7 @@ A cleaner route is only offered when the detour is worth it. Trips shorter than 
 
 ## 2.5 Personal Exposure Model
 
-Ambient air quality is converted into a **personal inhaled dose** for the selected mode. The inhaled mass is the product of the ambient PM2.5 concentration along the route, a **mode microenvironment factor**, a nominal breathing rate, and the trip duration. The microenvironment factors are literature-informed defaults: approximately **0.5** for an enclosed air-conditioned private car, **1.5** for an open auto-rickshaw travelling in the traffic plume, and **0.7** for an air-conditioned bus, with walking legs treated as fully exposed (about **1.2**) and blended by duration for multimodal BRTS trips. All concentrations are classified on the official **United States Environmental Protection Agency (US-EPA)** six-band Air Quality Index scale, with PM2.5 converted to and from µg/m³ using the EPA piecewise-linear breakpoints.
+Ambient air quality is converted into a **personal inhaled dose** for the selected mode. The inhaled mass is the product of the ambient PM2.5 concentration along the route, a **mode microenvironment factor**, a nominal breathing rate, and the trip duration. The mode microenvironment factors are **assumed midpoints within sourced ranges**: **×0.40** for an enclosed air-conditioned private car, **×0.83** for an open auto-rickshaw in the traffic plume, and **×0.75** for the BRTS bus cabin, with walking legs fully exposed at the **×1.00** roadside reference and blended by duration for multimodal BRTS trips. Every factor, its range, and its source or assumption status is listed in the Assumptions table below. All concentrations are classified on the official **United States Environmental Protection Agency (US-EPA)** six-band Air Quality Index scale, with PM2.5 converted to and from µg/m³ using the EPA piecewise-linear breakpoints.
 
 ## 2.6 Fare Model
 
@@ -73,6 +73,26 @@ Rather than asserting fixed accuracy figures, the system measures and displays i
 - **Air quality.** Because there is no independent second source to compare against in real time, each PM2.5 and AQI reading carries an **estimated uncertainty** rather than a measured error. The estimate grows with distance from the nearest sensor and with the coarseness of the source: roughly 8 percent plus 1.2 percent per kilometre for CPCB sensors, roughly 12 percent plus 1.5 percent per kilometre for a WAQI station, and a flat 30 percent for the coarse-grid CAMS model. The estimate is clearly labelled as such.
 
 # 3. Results
+
+### 2.7.1 Assumptions (microenvironment factors and dose model)
+
+Every value the dose model uses that is not directly measured, with its
+source or its explicit assumption status. No factor below is presented as
+literature-based unless a real source is named.
+
+| Factor | Value used | Basis | Source / status |
+|---|---|---|---|
+| Private-car microenvironment factor | ×0.40 (range 0.20–0.60) | share of roadside walking exposure, AC on, windows closed | Range informed by Goel et al. 2015 (measured AC car ≈ ×0.36 of walking) [1]; corroborated by Kumar et al. 2021 [2]. Midpoint ×0.40 is an **assumption**, not a measured value |
+| Auto-rickshaw microenvironment factor | ×0.83 (range 0.70–0.95) | open three-wheeler in the traffic plume | Range informed by Goel et al. 2015 (measured ≈ ×0.93 of walking) [1]. Midpoint ×0.83 is an **assumption - unvalidated** for Surat |
+| BRTS bus-cabin microenvironment factor | ×0.75 (range 0.60–0.90) | city bus cabin, blended with fully-exposed walking legs | Range informed by Goel et al. 2015 (measured AC bus ≈ ×0.86 of walking) [1]. Midpoint ×0.75 is an **assumption - unvalidated**; Surat Sitilink e-buses were not the measured fleet |
+| Walking factor | ×1.00 (reference) | roadside pedestrian defines 100% | By definition, not measured. Goel et al. 2015 [1] supports the ordering: walking was the highest-exposure mode measured (+40% over the fixed-site monitor) |
+| Breathing rate | 0.84 m³/h | nominal light-activity adult | **ASSUMPTION - unvalidated** against EPA/ICRP reference values |
+| Breathing-rate x duration dose model | linear time-weighted | simplification | **ASSUMPTION**; ignores exertion-driven ventilation changes by mode |
+
+Sources:
+
+1. Goel R, Gani S, Guttikunda SK, Wilson D, Tiwari G. *On-road PM2.5 pollution exposure in multiple transport microenvironments in Delhi.* Atmospheric Environment 123 (2015) 129-138. https://doi.org/10.1016/j.atmosenv.2015.10.037
+2. Kumar P, Hama S, Nogueira T, et al. *In-car particulate matter exposure across ten global cities.* Science of The Total Environment 750 (2021) 141395. https://doi.org/10.1016/j.scitotenv.2020.141395
 
 ## 3.1 System Outputs and Mode Comparison
 
