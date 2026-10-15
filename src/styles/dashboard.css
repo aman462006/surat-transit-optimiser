@@ -245,6 +245,7 @@
 .exp-dose-head strong { font-weight: 620; }
 .exp-factor { font-size: 0.74rem; font-weight: 660; padding: 2px 8px; border-radius: var(--r-full); border: 1px solid; }
 .exp-factor-note { font-size: 0.74rem; color: var(--text-muted); line-height: 1.4; }
+.exp-dose-note { display: flex; align-items: center; gap: 4px; font-size: 0.72rem; color: var(--text-muted); line-height: 1.35; cursor: help; text-decoration: underline dotted; text-underline-offset: 2px; }
 .exp-dose-rows { display: flex; flex-direction: column; gap: 5px; }
 .exp-dose-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.78rem; color: var(--text-secondary); }
 .exp-dose-row strong { font-weight: 620; color: var(--text); }

@@ -1,5 +1,5 @@
 /**
- * decisionInsights — derives the "AI reasoning" layer (confidence, why-bullets,
+ * decisionInsights — derives the reasoning layer (confidence, why-bullets,
  * tradeoffs, pros/cons, comfort) from the existing recommendation objects.
  * Pure functions, no side effects — the presentation components stay dumb.
  *

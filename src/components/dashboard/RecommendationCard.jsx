@@ -7,11 +7,12 @@ import { shortModeLabel, recommendationConfidence, whyBullets, tradeoff } from '
 const MODE_ICON = { 'electric-bus': 'bus', 'auto-pool': 'rickshaw', 'private-car': 'car' };
 
 /**
- * AIDecisionCard — ChatGPT-style reasoning panel. Names the recommended mode,
- * lists why it wins, surfaces the key tradeoff, and shows a confidence gauge.
- * All content is derived from the live recommendation ranking + exposure data.
+ * RecommendationCard — reasoning panel for the top-ranked mode. Names the
+ * recommended mode, lists why it wins, surfaces the key tradeoff, and shows
+ * the ranking confidence. All content is derived deterministically from the
+ * weighted recommendation ranking + exposure data. No model, no AI.
  */
-const AIDecisionCard = ({ ranked, exposureByMode = {}, onChoose, selectedId }) => {
+const RecommendationCard = ({ ranked, exposureByMode = {}, onChoose, selectedId }) => {
   const recommended = ranked?.[0] || null;
   const confidence = recommended ? recommendationConfidence(ranked) : 0;
   const conf = useCountUp(confidence, { duration: 800 }); // hook must run every render
@@ -26,7 +27,7 @@ const AIDecisionCard = ({ ranked, exposureByMode = {}, onChoose, selectedId }) =
     <div className="ai-card scale-in">
       <div className="ai-card-glow" aria-hidden="true" />
       <div className="ai-head">
-        <span className="ai-chip"><Icon name="sparkles" size={13} /> AI recommendation</span>
+        <span className="ai-chip"><Icon name="sparkles" size={13} /> Ranked recommendation</span>
         <Badge tone="neutral" variant="outline" size="sm">
           <Icon name="target" size={11} /> {confidence}% confidence
         </Badge>
@@ -88,4 +89,4 @@ const AIDecisionCard = ({ ranked, exposureByMode = {}, onChoose, selectedId }) =
   );
 };
 
-export default AIDecisionCard;
+export default RecommendationCard;

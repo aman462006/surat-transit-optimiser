@@ -18,7 +18,7 @@ const TopNav = ({ onAbout, onSettings }) => {
             <Icon name="logo" size={19} strokeWidth={2.4} />
           </span>
           <span className="brand-text">
-            <span className="brand-title">Surat Transit Optimiser</span>
+            <span className="brand-title">TransitOptima</span>
             <span className="brand-sub">Multimodal transport decisions</span>
           </span>
         </div>

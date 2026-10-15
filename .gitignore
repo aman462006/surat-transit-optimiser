@@ -30,3 +30,6 @@ backend/.env
 # Logs
 *.log
 npm-debug.log*
+
+# route-variation study HTTP response cache (reproducibility data, not source)
+scripts/.study_cache/

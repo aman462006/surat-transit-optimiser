@@ -4,7 +4,7 @@ import Button from '../ui/Button';
 import { SkeletonMetricGrid } from '../ui/Skeleton';
 import MetricCard from './MetricCard';
 import MeasuredErrorBadge from './MeasuredErrorBadge';
-import AIDecisionCard from './AIDecisionCard';
+import RecommendationCard from './RecommendationCard';
 import ModeComparisonCards from './ModeComparisonCards';
 import SelectedModeDetail from './SelectedModeDetail';
 import ExposureCard from './ExposureCard';
@@ -19,7 +19,7 @@ const walkKmOf = (o) =>
   o?.brtsItinerary?.walkingDistanceKm != null ? o.brtsItinerary.walkingDistanceKm : (o?.walkingRequiredMeters ?? 0) / 1000;
 
 /**
- * DecisionDashboard — the right column. Live telemetry, the AI recommendation,
+ * DecisionDashboard — the right column. Live telemetry, the ranked recommendation,
  * a premium KPI grid for the selected mode, selectable comparison cards, and the
  * mode-specific detail (fare/fuel, road variants, pollution exposure).
  */
@@ -119,8 +119,8 @@ const DecisionDashboard = ({
         </div>
       </div>
 
-      {/* AI recommendation */}
-      <AIDecisionCard ranked={ranked} exposureByMode={exposureByMode} onChoose={onSelectMode} selectedId={selectedTransit} />
+      {/* Ranked recommendation */}
+      <RecommendationCard ranked={ranked} exposureByMode={exposureByMode} onChoose={onSelectMode} selectedId={selectedTransit} />
 
       {/* KPI grid for selected mode */}
       <div className="dashboard-section">

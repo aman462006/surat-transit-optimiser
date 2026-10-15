@@ -87,6 +87,12 @@ const ExposureCard = ({ exposure, modeExposure, modeName, isLoading }) => {
             <span className="exp-factor" style={{ color: modeExposure.pm25Class.color, borderColor: modeExposure.pm25Class.color }}>×{modeExposure.factor}</span>
           </div>
           <p className="exp-factor-note">{modeExposure.factorLabel}</p>
+          <p
+            className="exp-dose-note"
+            title="Mode factors vs roadside walking (×1.00 reference): private car ×0.40 (AC, windows closed), auto-rickshaw ×0.83 (open cabin), BRTS bus cabin ×0.75 blended with fully-exposed walking legs, walking ×1.00. Ranges informed by Goel et al. 2015, Delhi (doi 10.1016/j.atmosenv.2015.10.037); the exact midpoints are assumed, not measured. Breathing rate 0.84 m³/h assumed."
+          >
+            <Icon name="info" size={12} /> Estimate based on assumed mode factors
+          </p>
           <div className="exp-dose-rows">
             <div className="exp-dose-row"><span>Effective PM2.5 breathed</span><strong style={{ color: modeExposure.pm25Class.color }} className="tnum">{modeExposure.effectivePm25} µg/m³</strong></div>
             <div className="exp-dose-row"><span>Inhaled over {modeExposure.durationMins} min</span><strong className="tnum">≈ {modeExposure.inhaledPm25Ug} µg</strong></div>

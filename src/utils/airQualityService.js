@@ -251,37 +251,65 @@ const buildResult = (base) => {
 // ---- Per-mode exposure (microenvironment factor × time) ---------------------
 
 /**
- * Relative inhaled-PM2.5 multipliers vs ambient roadside air, by travel
+ * Relative inhaled-PM2.5 multipliers vs ambient ROADSIDE air, by travel
  * microenvironment. Walking in open roadside air is the 100% reference (×1.0);
- * every other mode is scaled to it. Each factor is the MIDPOINT of the measured
- * exposure range for that microenvironment, and `reason` explains in one line
- * why a single multiplier captures the whole picture for that mode.
+ * every other mode is scaled to it.
  *
- * Source table (share of walking exposure), car assumed windows-closed:
- *   Walking 100% · Auto-rickshaw 70–95% · Bus (windows open) 60–90% ·
- *   Car (windows closed, AC) 20–60%.
+ * SOURCED MEASUREMENT BASIS (real citation, Delhi, South Asia):
+ *   Goel R, Gani S, Guttikunda SK, Wilson D, Tiwari G. "On-road PM2.5
+ *   pollution exposure in multiple transport microenvironments in Delhi."
+ *   Atmospheric Environment 123 (2015) 129-138.
+ *   https://doi.org/10.1016/j.atmosenv.2015.10.037
+ *   Measured PM2.5 vs fixed-site ambient, 11 microenvironments on a fixed
+ *   8.3 km arterial route, morning rush hour: walking +40%, auto-rickshaw
+ *   +30%, AC car −50%, AC bus +20%, open-window bus +20%.
+ *   Converted to walking-as-reference (walking = 1.40 × ambient):
+ *     auto-rickshaw ≈ ×0.93 · AC car ≈ ×0.36 · bus ≈ ×0.86 of walking.
+ *
+ * HONEST STATUS OF THE RANGES AND MIDPOINTS: the RANGES below are informed
+ * by that single-route measurement and related literature; the exact MIDPOINT
+ * we use as each factor is our own conservative choice, NOT a measured value.
+ * Treat every factor as "assumed midpoint within a sourced range".
  */
 export const MODE_EXPOSURE_FACTORS = {
   'private-car': {
-    factor: 0.40,            // midpoint of 20–60% (windows closed, AC on)
+    factor: 0.40,            // ASSUMED midpoint of 0.20–0.60
     range: [0.20, 0.60],
+    // Source: Goel et al. 2015 (Delhi) measured AC car ≈ ×0.36 of walking
+    // exposure (−50% vs ambient while walking was +40%). Corroborated by
+    // Kumar P et al., "In-car particulate matter exposure across ten global
+    // cities", Sci Total Environ 750 (2021) 141395
+    // https://doi.org/10.1016/j.scitotenv.2020.141395 (in-cabin PM < outdoor).
+    // Our ×0.40 midpoint within 0.20–0.60 is an assumption, not a measurement.
     label: 'windows closed, AC recirculation',
     reason: 'Sealed windows + AC recirculation and cabin filtration strip most roadside PM2.5, so one ×0.40 multiplier already nets enclosure, ventilation and filtered intake against a pedestrian.'
   },
   'auto-pool': {
-    factor: 0.83,            // midpoint of 70–95% (fully open three-wheeler)
+    factor: 0.83,            // ASSUMED midpoint of 0.70–0.95
     range: [0.70, 0.95],
+    // Source: Goel et al. 2015 (Delhi) measured open auto-rickshaw ≈ ×0.93
+    // of walking exposure (+30% vs ambient). Our ×0.83 conservative midpoint
+    // within 0.70–0.95 is an ASSUMPTION - unvalidated for Surat.
     label: 'open three-wheeler, in the traffic plume',
     reason: 'With no enclosure you breathe the exhaust plume almost like a pedestrian, so ×0.83 captures the only relief — slight dilution from the vehicle moving through the air.'
   },
   'electric-bus': {
-    factor: 0.75,            // midpoint of 60–90% (city bus cabin)
+    factor: 0.75,            // ASSUMED midpoint of 0.60–0.90
     range: [0.60, 0.90],
+    // Source: Goel et al. 2015 (Delhi) measured AC bus ≈ ×0.86 of walking
+    // exposure (+20% vs ambient). Our ×0.75 conservative midpoint within
+    // 0.60–0.90 is an ASSUMPTION - unvalidated; Surat Sitilink e-buses
+    // were not the measured fleet.
     label: 'high-floor bus cabin',
     reason: 'A tall, large-volume cabin sits above and dilutes the kerbside plume to ×0.75, and the model time-blends this with the fully-exposed walk legs so first/last-mile breathing is still counted.'
   }
 };
-const WALK_FACTOR = 1.0;   // pedestrian in open roadside air — the 100% reference
+const WALK_FACTOR = 1.0;   // pedestrian in open roadside air — the 100% reference,
+                          // defined, not measured. Goel 2015 supports the ordering:
+                          // walking was the highest-exposure mode measured (+40% over
+                          // fixed-site ambient, i.e. roadside walking > monitor values).
+// Breathing rate 0.84 m3/h is a NOMINAL light-activity adult rate — ASSUMPTION,
+// unvalidated against EPA/ICRP reference values.
 const RIDE_FACTOR = 0.75;  // inside the bus cabin (matches electric-bus factor)
 const DEFAULT_FACTOR = 1.0;
 

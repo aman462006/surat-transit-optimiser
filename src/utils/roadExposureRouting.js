@@ -29,7 +29,7 @@
 import { generateBfsRoadRoutes, routeSignature } from './bfsRouteGenerator.js';
 import { findFastestRoadRoute } from './roadAStar.js';
 import { fetchRouteExposure } from './airQualityService.js';
-import { getTrafficEta } from './googleMapsService.js';
+import { getTrafficEta } from './trafficService.js';
 
 /**
  * Picks up to `n` intermediate points (excluding the endpoints) evenly along a
