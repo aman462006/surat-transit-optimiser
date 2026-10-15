@@ -29,4 +29,7 @@ backend/.env
 
 # Logs
 *.log
-npm-debug.log*scripts/.study_cache/
+npm-debug.log*
+
+# route-variation study HTTP response cache (reproducibility data, not source)
+scripts/.study_cache/
