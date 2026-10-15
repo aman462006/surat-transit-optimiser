@@ -27,13 +27,24 @@ git push origin main
 
    | Name | Value |
    |------|-------|
-   | `VITE_WAQI_TOKEN` | your WAQI token (or leave unset) |
-   | `VITE_DATAGOV_KEY` | your data.gov.in key |
+   | `TOMTOM_API_KEY` | your TomTom key (server-only, used by /api/traffic) |
+   | `OPENAQ_API_KEY` | your OpenAQ key (server-only, used by /api/air) |
+   | `DATAGOV_KEY` | your data.gov.in key (server-only, used by /api/cpcb) |
+   | `WAQI_TOKEN` | your WAQI token, or leave unset (server-only, used by /api/waqi) |
    | `VITE_BACKEND_URL` | your Cloudflare tunnel URL (set this **after** step 2 below) |
+
+   All API keys are SERVER-ONLY environment variables — they have no `VITE_`
+   prefix and are never bundled into the public client. Never give a secret a
+   `VITE_` prefix: Vite bakes every `VITE_` value into the shipped JavaScript.
 
 4. Click **Deploy**. You'll get a URL like `https://transitoptima.vercel.app`.
 
 > Re-deploy after setting `VITE_BACKEND_URL` (env vars are baked in at build time for Vite).
+>
+> **Key rotation:** a shared data.gov.in sample API key was previously committed
+> to this repo and was bundled into public client builds. Treat every key that
+> has ever been committed as compromised: generate replacements at the
+> respective provider and set them fresh in Vercel. Never commit key values.
 
 ---
 

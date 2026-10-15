@@ -180,11 +180,17 @@ The application runs without any keys: air quality falls back to the free CAMS m
 | Variable | Scope | Purpose |
 |----------|-------|---------|
 | `TOMTOM_API_KEY` | Server (Vercel function / backend) | Enables live TomTom traffic-aware ETAs. Without it, the calibrated model is used. |
-| `VITE_WAQI_TOKEN` | Frontend | Optional WAQI token (aqicn.org). If absent, WAQI is skipped. |
-| `VITE_DATAGOV_KEY` | Frontend | Optional data.gov.in key for live CPCB stations. A shared sample key is bundled for light use. |
-| `VITE_BACKEND_URL` | Frontend | Optional. Points the traffic client at a specific backend; if unset, the same-origin serverless function is used. |
+| `OPENAQ_API_KEY` | Server (Vercel function / backend) | OpenAQ ground sensors, the primary live CPCB source, via the `/api/air` proxy. |
+| `DATAGOV_KEY` | Server (Vercel function / backend) | data.gov.in resource API, the legacy CPCB fallback, via the `/api/cpcb` proxy. |
+| `WAQI_TOKEN` | Server (Vercel function / backend) | WAQI nearest-station lookup via the `/api/waqi` proxy. If absent, WAQI is skipped. |
+| `VITE_BACKEND_URL` | Frontend | Optional. Points the traffic/air/cpcb/waqi clients at a specific backend; if unset, the same-origin serverless functions are used. |
 
-Real keys must never be committed; environment files are gitignored.
+All API keys are server-only and never carry the `VITE_` prefix: Vite bakes
+every `VITE_` value into the public client bundle, so a `VITE_` key is a
+leaked key. The frontend contains no secrets. Real keys must never be
+committed; environment files are gitignored. Any key previously committed
+to this repo (a shared data.gov.in sample key was, before this fix) must be
+treated as compromised and rotated by the owner.
 
 ## 5.5 Tests and Production Build
 

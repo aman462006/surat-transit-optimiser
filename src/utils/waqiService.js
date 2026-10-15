@@ -2,18 +2,21 @@
  * WAQI (World Air Quality Index) Ground-Station Service
  *
  * Fetches REAL measurements from the nearest physical monitoring station via the
- * WAQI API (aqicn.org). Note: WAQI station coverage is sparse — for Surat the
- * nearest station is ~50 km away in Ankleshwar — so callers should check the
- * returned `distanceKm` and fall back to a model when no station is close.
+ * WAQI API (aqicn.org), through our same-origin /api/waqi serverless proxy
+ * (api/waqi.js). The WAQI token is a SERVER-ONLY env var (WAQI_TOKEN) — never
+ * a VITE_ variable, since Vite bakes VITE_ values into the public bundle.
+ * Note: WAQI station coverage is sparse — for Surat the nearest station is
+ * ~50 km away in Ankleshwar — so callers should check the returned
+ * `distanceKm` and fall back to a model when no station is close.
  *
  * WAQI reports pollutants as AQI sub-indices (US-EPA scale), NOT raw µg/m³, so
  * `aqiToPm25Concentration` inverts the EPA breakpoints to recover concentration.
  */
 
-// WAQI token — supplied via the VITE_WAQI_TOKEN env var (see .env.example).
-// Never hard-code real tokens in source; without one, WAQI is skipped and the
-// exposure feature falls back to CPCB / CAMS.
-const WAQI_TOKEN = (import.meta.env && import.meta.env.VITE_WAQI_TOKEN) || '';
+// Same-origin by default: on Vercel, /api/waqi is the serverless function in
+// api/waqi.js (mirrors how the traffic and air layers resolve their proxies).
+const BACKEND_URL =
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BACKEND_URL) || '';
 
 const toRad = (d) => (d * Math.PI) / 180;
 
@@ -64,14 +67,13 @@ const _stationCache = new Map();
  *   dominant, stationName, stationGeo:[lat,lng], distanceKm, time } or null.
  */
 export const fetchNearestStation = async (lat, lng) => {
-  if (!WAQI_TOKEN) return null; // no token configured → skip WAQI
   const key = `${lat.toFixed(3)},${lng.toFixed(3)}`;
   if (_stationCache.has(key)) return _stationCache.get(key);
 
-  const url = `https://api.waqi.info/feed/geo:${lat};${lng}/?token=${WAQI_TOKEN}`;
+  const url = `${BACKEND_URL}/api/waqi?lat=${lat}&lng=${lng}`;
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`WAQI status ${res.status}`);
+    if (!res.ok) throw new Error(`/api/waqi status ${res.status}`);
     const json = await res.json();
     if (json.status !== 'ok' || !json.data || typeof json.data.aqi !== 'number') {
       throw new Error('WAQI returned no usable station');

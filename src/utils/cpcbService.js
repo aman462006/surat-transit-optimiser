@@ -6,9 +6,12 @@
  * X-API-Key header whose CORS preflight browsers cannot pass, and data.gov.in
  * (the legacy direct source) rejects foreign IPs, so this layer is proxied.
  *
- * FALLBACK: the legacy data.gov.in resource API (shared sample key, heavily
- * rate-limited, and unreachable from non-Indian IPs). Kept for the case where
- * OpenAQ has no coverage near an anchor city but data.gov.in still answers.
+ * FALLBACK: the legacy data.gov.in resource API, now fetched through our own
+ * /api/cpcb serverless proxy (api/cpcb.js). The data.gov.in key is a
+ * SERVER-ONLY env var (DATAGOV_KEY) — it must never be a VITE_ variable,
+ * because Vite bakes every VITE_ value into the public client bundle. Kept
+ * for the case where OpenAQ has no coverage near an anchor city but
+ * data.gov.in still answers.
  *
  * Unlike WAQI (whose nearest Surat station is ~50 km away in Ankleshwar), the
  * CPCB network has real stations inside Surat itself (e.g. Science Center,
@@ -23,12 +26,6 @@
 // api/air.js (mirrors how the traffic layer resolves /api/traffic).
 const BACKEND_URL =
   (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_BACKEND_URL) || '';
-
-// data.gov.in API key — public sample key by default; override with your own
-// free key via VITE_DATAGOV_KEY (sample key is shared and rate-limited).
-const DATAGOV_KEY =
-  (import.meta.env && import.meta.env.VITE_DATAGOV_KEY) ||
-  '579b464db66ec23bdd000001cdd3946e44ce4aad7209ff7b23ac571b';
 
 // CPCB "Real time Air Quality Index from various locations" resource.
 const RESOURCE_ID = '3b01bcb8-0b14-4abf-b6f2-c1bfd384ba69';
@@ -113,12 +110,11 @@ const fetchAnchorViaOpenAQ = async (anchor) => {
  * FALLBACK path: legacy data.gov.in resource API for one city (by name).
  */
 const fetchAnchorViaDataGov = async (city) => {
-  const url =
-    `https://api.data.gov.in/resource/${RESOURCE_ID}` +
-    `?api-key=${DATAGOV_KEY}&format=json&limit=200&filters%5Bcity%5D=${encodeURIComponent(city)}`;
+  // Same-origin proxy: the data.gov.in key lives only on the server.
+  const url = `${BACKEND_URL}/api/cpcb?city=${encodeURIComponent(city)}`;
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`data.gov.in status ${res.status}`);
+    if (!res.ok) throw new Error(`/api/cpcb status ${res.status}`);
     const json = await res.json();
     const records = Array.isArray(json.records) ? json.records : [];
 
