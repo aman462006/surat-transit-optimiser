@@ -1,6 +1,26 @@
 import { findMultimodalRoute } from './graphUtils';
 
 /**
+ * WHAT THIS FILE ACTUALLY DOES (no learned model, no AI):
+ *
+ * 1. Defines three hand-modeled transit modes (electric BRTS bus, shared
+ *    auto-rickshaw, private car) with calibrated constants: metered
+ *    Gujarat/SMC fare formulas, CEA 2024 grid CO2 intensity for the e-bus,
+ *    per-fuel CO2 factors and pump prices for the car.
+ * 2. For each mode, computes travel time, trip cost and tailpipe CO2 from
+ *    the OSRM route distance/duration (BRTS uses the station-graph
+ *    itinerary when one resolves).
+ * 3. Min-max normalizes time, cost and CO2 across the three options.
+ * 4. Composite score = 0.40*time + 0.30*cost + 0.30*CO2 (other weights
+ *    are stubs at 0), a fixed deterministic weighting.
+ * 5. Labels the absolute winners (FASTEST / CHEAPEST / GREENEST), the
+ *    composite winner (BALANCED MATCH) and ranks by composite score.
+ *
+ * Everything here is deterministic arithmetic. "Recommendation" means
+ * ranked multi-criteria scoring, nothing more.
+ */
+
+/**
  * Transit Mode Definitions
  * Modeled parameters representing realistic physical constraints, pricing tiers,
  * and environmental profiles in Surat, Gujarat.
@@ -358,7 +378,7 @@ export const generateRecommendations = (
     };
   });
 
-  // 4. Assign Intelligent Recommendation Labels
+  // 4. Assign recommendation labels (deterministic winners, no inference)
   // Identify key absolute winners
   const fastestId = scoredOptions.reduce((prev, curr) => prev.travelTime < curr.travelTime ? prev : curr).id;
   const cheapestId = scoredOptions.reduce((prev, curr) => prev.tripCost < curr.tripCost ? prev : curr).id;

@@ -58,7 +58,7 @@ const LandingPage = ({ onProceed }) => {
         {/* Hero */}
         <section className="landing-hero">
           <Badge tone="accent" variant="soft" size="md" className="landing-eyebrow">
-            <Icon name="sparkles" size={13} /> Intelligent multimodal transport decisions
+            <Icon name="sparkles" size={13} /> Ranked multimodal transport decisions
           </Badge>
           <h1 className="landing-h1">
             Plan a Surat trip by time, cost,<br /><span className="landing-h1-accent">and the air you’ll breathe.</span>

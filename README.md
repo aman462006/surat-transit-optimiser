@@ -111,7 +111,7 @@ TransitOptima demonstrates that an everyday trip planner can treat **air-quality
 ## 5.2 Project Structure
 
 ```text
-smart-transport-optimizer/
+surat-transit-optimiser/
 ├── api/
 │   └── traffic.js              # Vercel serverless function: traffic-aware ETA (TomTom + fallback)
 ├── src/
@@ -146,8 +146,8 @@ smart-transport-optimizer/
 Prerequisites: Node.js 18 or later and npm; optionally Python 3.10 or later for the local backend.
 
 ```bash
-git clone <your-repo-url>
-cd smart-transport-optimizer
+git clone https://github.com/aman462006/surat-transit-optimiser.git
+cd surat-transit-optimiser
 npm install
 cp .env.example .env       # optional keys; the app runs without them
 npm run dev                # http://localhost:5173

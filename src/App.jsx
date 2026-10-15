@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
 import { generateRecommendations } from './utils/recommendationEngine';
-import { getTrafficEta } from './utils/googleMapsService';
+import { getTrafficEta } from './utils/trafficService';
 import { searchPlaces, reverseGeocode, getUserCurrentLocation } from './utils/geocodingService';
 import { findNearestStation } from './utils/graphUtils';
 import { fetchRouteExposure, computeModeExposure } from './utils/airQualityService';
