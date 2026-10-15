@@ -1,0 +1,219 @@
+{
+  "_meta": {
+    "description": "30 origin-destination pairs for the cleanest-air vs fastest route study.",
+    "selection_rule": "Endpoints are taken verbatim from the repo's own city model (src/utils/transitDataService.js BRTS node list) to avoid hand-picked coordinates. Pairs were written BEFORE any run, fixed in advance, and cover: short (<3 km), medium (3-8 km), long (>8 km) trips; pairs that cross the Tapi river (north <-> south) and pairs that stay on one side; BRTS-corridor-aligned and perpendicular trips; industrial south (Pandesara, Sachin, UNN), the coast (Dumas, Magdalla), and the outskirts (Olpad, Sayan, Kamrej, Pasodara). No pair was chosen, added, or removed after seeing results.",
+    "departure_window": "morning-rush"
+  },
+  "pairs": [
+    {
+      "id": 1,
+      "from": "Surat Railway Station Hub",
+      "to": "Katargam Darwaja BRTS",
+      "crosses_tapi": true,
+      "expected_length": "short"
+    },
+    {
+      "id": 2,
+      "from": "Katargam BRTS Station",
+      "to": "Adajan Circle BRTS",
+      "crosses_tapi": true,
+      "expected_length": "medium"
+    },
+    {
+      "id": 3,
+      "from": "Hirabaug BRTS Station",
+      "to": "Piplod BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "medium"
+    },
+    {
+      "id": 4,
+      "from": "Varachha BRTS Station",
+      "to": "SVNIT BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "long"
+    },
+    {
+      "id": 5,
+      "from": "Kapodra BRTS Station",
+      "to": "Vesu BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "long"
+    },
+    {
+      "id": 6,
+      "from": "Amroli BRTS Station",
+      "to": "Althan Depot BRTS Terminal",
+      "crosses_tapi": true,
+      "expected_length": "medium"
+    },
+    {
+      "id": 7,
+      "from": "Ved Gam BRTS Station",
+      "to": "Bhatar BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "medium"
+    },
+    {
+      "id": 8,
+      "from": "Variav BRTS Station",
+      "to": "Adajan Patiya BRTS",
+      "crosses_tapi": true,
+      "expected_length": "medium"
+    },
+    {
+      "id": 9,
+      "from": "Rander Road BRTS Station",
+      "to": "Majura Gate BRTS Hub",
+      "crosses_tapi": true,
+      "expected_length": "medium"
+    },
+    {
+      "id": 10,
+      "from": "Surat Railway Station Hub",
+      "to": "Dumas Beach Terminal",
+      "crosses_tapi": false,
+      "expected_length": "long"
+    },
+    {
+      "id": 11,
+      "from": "SVNIT BRTS Station",
+      "to": "Sachin G.I.D.C. Naka BRTS",
+      "crosses_tapi": false,
+      "expected_length": "long"
+    },
+    {
+      "id": 12,
+      "from": "Piplod BRTS Station",
+      "to": "Pandesara G.I.D.C. BRTS",
+      "crosses_tapi": false,
+      "expected_length": "medium"
+    },
+    {
+      "id": 13,
+      "from": "Adajan Patiya BRTS",
+      "to": "Kadodara BRTS Terminal",
+      "crosses_tapi": false,
+      "expected_length": "long"
+    },
+    {
+      "id": 14,
+      "from": "Vesu BRTS Station",
+      "to": "Kumbharia BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "long"
+    },
+    {
+      "id": 15,
+      "from": "Dumas Beach Terminal",
+      "to": "Sarthana Nature Park BRTS",
+      "crosses_tapi": true,
+      "expected_length": "long"
+    },
+    {
+      "id": 16,
+      "from": "Olpad BRTS Terminal",
+      "to": "Ring Road BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "long"
+    },
+    {
+      "id": 17,
+      "from": "Sayan BRTS Terminal",
+      "to": "Udhna Darwaja BRTS",
+      "crosses_tapi": false,
+      "expected_length": "long"
+    },
+    {
+      "id": 18,
+      "from": "Kamrej BRTS Terminal",
+      "to": "Bombay Market BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "long"
+    },
+    {
+      "id": 19,
+      "from": "Pasodara Gam BRTS Station",
+      "to": "Parvat Patia BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "medium"
+    },
+    {
+      "id": 20,
+      "from": "Mota Varachha BRTS Station",
+      "to": "Athwa Gate BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "medium"
+    },
+    {
+      "id": 21,
+      "from": "Kosad Bus Depot BRTS",
+      "to": "Adajan Circle BRTS",
+      "crosses_tapi": true,
+      "expected_length": "long"
+    },
+    {
+      "id": 22,
+      "from": "Utran R.O.B. Bridge BRTS",
+      "to": "Gavier BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "long"
+    },
+    {
+      "id": 23,
+      "from": "Ugat BRTS Station",
+      "to": "Bhulka Vihar School BRTS",
+      "crosses_tapi": false,
+      "expected_length": "short"
+    },
+    {
+      "id": 24,
+      "from": "Jahangirpura Community Hall BRTS",
+      "to": "Pal R.T.O. BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "medium"
+    },
+    {
+      "id": 25,
+      "from": "Vivekanand College BRTS",
+      "to": "Chiku Wadi BRTS Station",
+      "crosses_tapi": false,
+      "expected_length": "short"
+    },
+    {
+      "id": 26,
+      "from": "ONGC Colony Terminal",
+      "to": "Majura Gate BRTS Hub",
+      "crosses_tapi": false,
+      "expected_length": "medium"
+    },
+    {
+      "id": 27,
+      "from": "Gajera Circle BRTS Hub",
+      "to": "St Thomas School Junction BRTS",
+      "crosses_tapi": true,
+      "expected_length": "medium"
+    },
+    {
+      "id": 28,
+      "from": "Bhestan Garden BRTS Station",
+      "to": "Udhna Academy BRTS",
+      "crosses_tapi": false,
+      "expected_length": "short"
+    },
+    {
+      "id": 29,
+      "from": "Dindoli Gam BRTS Station",
+      "to": "Kumbharia BRTS Station",
+      "crosses_tapi": false,
+      "expected_length": "medium"
+    },
+    {
+      "id": 30,
+      "from": "Magdalla BRTS Station",
+      "to": "Godadara BRTS Station",
+      "crosses_tapi": true,
+      "expected_length": "long"
+    }
+  ]
+}
