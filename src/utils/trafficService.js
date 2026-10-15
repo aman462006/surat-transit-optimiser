@@ -1,18 +1,14 @@
 /**
- * Google Maps Hybrid Traffic Service & Surat Congestion Model
- * 
- * =========================================================================
- * HYBRID ROUTING ARCHITECTURE
- * =========================================================================
- * To achieve high-fidelity routing visuals without requiring paid API keys:
- * 1. Geometry Routing: Uses OSRM (OpenStreetMap Router) exclusively to fetch high-fidelity
- *    road geometries and render path polylines on the Leaflet canvas.
- * 2. Travel Duration Calculation: Handled independently by this service. Uses a multi-tier
- *    duration resolver:
- *    - Valid API Key: Calls the Google Maps Distance Matrix API directly to retrieve
- *      genuine, live, traffic-aware driving durations and delay parameters.
- *    - Missing Key / API Failure / CORS Block: Instantly falls back to the internal
- *      geographically calibrated "Surat Urban Mobility Formula" to compute realistic durations.
+ * Traffic Service — TomTom ETA with a calibrated Surat fallback model
+ *
+ * What this file actually does, in order of preference:
+ * 1. getTrafficEta asks the app's own backend (/api/traffic, a Vercel
+ *    serverless function) for a live TomTom Routing API ETA.
+ * 2. If the backend is unreachable, it falls back to an on-device
+ *    calibrated congestion model (per-hour multipliers + Tapi-bridge
+ *    bottleneck delays over an OSRM free-flow duration).
+ * Road geometry comes from OSRM separately; this service only resolves
+ * travel durations. There is no learned model anywhere in here.
  * 
  * =========================================================================
  * INTERNAL TRAFFIC MODELING & MATHEMATICAL FALLBACK
@@ -41,7 +37,7 @@
  * =========================================================================
  * EXTERNAL VS. INTERNAL DISTINCTION & HONEST TERMINOLOGY
  * =========================================================================
- * - Real API: The system sets `isSimulated: false`. Telemetry displays "Google Traffic ETA".
+ * - Real API: The system sets `isSimulated: false`. Telemetry displays "TomTom Traffic ETA".
  * - Internal Model: The system sets `isSimulated: true`. Telemetry displays "Smart Traffic ETA"
  *   (or "Calibrated Urban ETA") and prints a detailed transparent note explaining that the local
  *   simulation model is active, preventing any confusion and ensuring technical honesty.
@@ -60,7 +56,7 @@ const crossesTapiRiver = (source, dest) => {
  * Surat Geographic Traffic Congestion Simulator
  * 
  * Computes highly realistic travel durations using coordinate paths, bridge crossings,
- * time-of-day multipliers, and departure anchors to mimic Google's traffic-aware ETAs.
+ * time-of-day multipliers, and departure anchors to approximate traffic-aware ETAs.
  * 
  * @param {Object} source - { lat, lng }
  * @param {Object} dest - { lat, lng }
@@ -201,122 +197,5 @@ export const getTrafficEta = async (source, dest, departureTime, osrmDurationMin
     console.warn('Backend traffic API unreachable — using local calibrated model.', err.message);
     const local = simulateSuratTraffic(source, dest, departureTime, osrmDurationMins, distanceKm);
     return { ...local, fallbackWarning: 'Backend offline — using on-device calibrated model.' };
-  }
-};
-
-/**
- * Fetch Traffic-Aware Duration
- *
- * Attempts to contact Google Maps Distance Matrix API if a key is present.
- * Automatically falls back to the Surat Congestion Model on missing key,
- * CORS restrictions, or API errors, guaranteeing consistent operability.
- * 
- * @param {Object} source - { lat, lng }
- * @param {Object} dest - { lat, lng }
- * @param {string} apiKey - Optional Google Maps API Key
- * @param {string} departureTime - 'now' | 'morning-rush' | 'midday-offpeak' | 'evening-rush' | 'night-freeflow'
- * @param {number} osrmDurationMins - Fallback duration from OSRM
- * @returns {Promise<Object>} Telemetry results
- */
-export const fetchTrafficAwareDuration = async (source, dest, apiKey, departureTime, osrmDurationMins) => {
-  if (!source || !dest) return null;
-
-  // If no API Key is provided, use the Surat Congestion Model directly
-  if (!apiKey || apiKey.trim() === '') {
-    return simulateSuratTraffic(source, dest, departureTime, osrmDurationMins);
-  }
-
-  // Resolve departure timestamp for Google API
-  let departureTimestamp = 'now';
-  const now = new Date();
-  if (departureTime === 'morning-rush') {
-    // set to next morning at 9:00 AM
-    now.setHours(9, 0, 0, 0);
-    if (now.getTime() < Date.now()) now.setDate(now.getDate() + 1);
-    departureTimestamp = Math.floor(now.getTime() / 1000);
-  } else if (departureTime === 'evening-rush') {
-    // set to next evening at 6:30 PM
-    now.setHours(18, 30, 0, 0);
-    if (now.getTime() < Date.now()) now.setDate(now.getDate() + 1);
-    departureTimestamp = Math.floor(now.getTime() / 1000);
-  } else if (departureTime === 'midday-offpeak') {
-    // set to next midday at 2:00 PM
-    now.setHours(14, 0, 0, 0);
-    if (now.getTime() < Date.now()) now.setDate(now.getDate() + 1);
-    departureTimestamp = Math.floor(now.getTime() / 1000);
-  } else if (departureTime === 'night-freeflow') {
-    // set to next late night at 1:00 AM
-    now.setHours(1, 0, 0, 0);
-    if (now.getTime() < Date.now()) now.setDate(now.getDate() + 1);
-    departureTimestamp = Math.floor(now.getTime() / 1000);
-  }
-
-  // Google Distance Matrix API URL
-  // Origins and destinations are input as comma-separated lat,lng
-  const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${source.lat},${source.lng}&destinations=${dest.lat},${dest.lng}&departure_time=${departureTimestamp}&traffic_model=best_guess&key=${apiKey}`;
-
-  try {
-    // Distance Matrix client-side requests can trigger CORS errors in browsers.
-    // We attempt fetch, and catch to seamlessly fall back to our consistent Surat Traffic Simulator.
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Google API returned status: ${response.status}`);
-    
-    const data = await response.json();
-    
-    if (data.status === 'OK' && data.rows && data.rows[0].elements && data.rows[0].elements[0].status === 'OK') {
-      const element = data.rows[0].elements[0];
-      
-      const distanceText = element.distance.text;
-      const distanceVal = parseFloat((element.distance.value / 1000).toFixed(2)); // in km
-      
-      // Standard base duration in typical traffic
-      const durationSeconds = element.duration.value;
-      const standardDuration = Math.round(durationSeconds / 60);
-
-      // Real traffic-aware duration
-      let trafficDuration = standardDuration;
-      if (element.duration_in_traffic) {
-        trafficDuration = Math.round(element.duration_in_traffic.value / 60);
-      }
-
-      const delayMins = Math.max(0, trafficDuration - standardDuration);
-      
-      let status = '🟢 Free Flow';
-      let color = 'traffic-light';
-      let description = 'Typical traffic flowing at normal standard speeds.';
-
-      if (delayMins > 10) {
-        status = '🔴 Heavy Congestion';
-        color = 'traffic-heavy';
-        description = `Severe traffic delays detected by Google Maps Distance Matrix. +${delayMins}m commute latency.`;
-      } else if (delayMins > 3) {
-        status = '🟡 Moderate Traffic';
-        color = 'traffic-moderate';
-        description = `Minor traffic congestion detected. +${delayMins}m delay.`;
-      }
-
-      return {
-        isSimulated: false,
-        standardDuration,
-        trafficDuration,
-        delayMins,
-        status,
-        color,
-        description,
-        googleDistance: distanceVal
-      };
-    } else {
-      const errorMsg = data.error_message || (data.rows && data.rows[0].elements[0].status) || 'API returned invalid status';
-      throw new Error(errorMsg);
-    }
-  } catch (err) {
-    console.warn("Google Maps Distance Matrix Request failed. Redirecting to Surat Congestion Model fallback. Error:", err.message);
-    
-    // Inject visual feedback of fallback in console
-    const result = simulateSuratTraffic(source, dest, departureTime, osrmDurationMins);
-    return {
-      ...result,
-      fallbackWarning: `Using Surat Congestion Model (Reason: ${err.message})`
-    };
   }
 };

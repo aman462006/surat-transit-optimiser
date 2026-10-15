@@ -15,7 +15,7 @@ const buildCo2 = (o) => {
 
 /**
  * ModeComparisonCards — the three travel options as premium, selectable cards.
- * The AI pick carries a "Recommended" ribbon and lifted styling. Each card shows
+ * The top-ranked pick carries a "Recommended" ribbon and lifted styling. Each card shows
  * headline metrics, per-mode PM2.5 dose (when available) and quick pros/cons.
  */
 const ModeComparisonCards = ({ ranked, selectedId, onSelect, exposureByMode = {} }) => {
